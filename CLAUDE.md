@@ -415,6 +415,45 @@ CI: add `SUPABASE_URL` and `SUPABASE_ANON_KEY` as GitHub Actions secrets and
 the workflow produces a debug APK per push. Signing is optional and documented
 inline in the workflow.
 
+### Getting an update onto an agent's phone
+
+There's no Play Store, so nothing pushes updates automatically — every new
+build has to be installed manually, once per phone. The repo for this is
+`https://github.com/shishirkush/telecalling-app` (created 2026-09-07, public
+— required so the download link below works with no GitHub login).
+
+To ship a new build:
+
+```bash
+cd android && java -cp gradle/wrapper/gradle-wrapper.jar \
+  org.gradle.wrapper.GradleWrapperMain assembleDebug
+gh release create vX.Y.Z android/app/build/outputs/apk/debug/app-debug.apk \
+  --repo shishirkush/telecalling-app --title "vX.Y.Z — <what changed>" \
+  --notes "<what changed, and why it's safe to update over the old install>"
+```
+
+**Keep the asset filename `app-debug.apk` every release.** The stable link
+supervisors give agents depends on it:
+
+```
+https://github.com/shishirkush/telecalling-app/releases/latest/download/app-debug.apk
+```
+
+That URL always resolves to whatever the *most recent* release's
+`app-debug.apk` is — no need to re-share a new link each version. The agent
+opens it on their phone, taps the downloaded file, and installs over the
+existing app (same package name, same debug signing key, so it's an update
+in place — session and all Supabase-side data are untouched either way,
+since none of it lives on the device). "Install unknown apps" needs enabling
+once for whatever app opens the file, same requirement Bluetooth transfer
+already had.
+
+This is separate from the CI workflow above (`.github/workflows/android-build.yml`,
+which uploads to Actions artifacts — those require a GitHub login to
+download, so they're fine for your own testing but not for handing an agent
+a link). Wiring CI to publish a Release automatically on push is the natural
+next step if manual `gh release create` becomes a chore, not done yet.
+
 ---
 
 ## 7. Open work, roughly in priority order
