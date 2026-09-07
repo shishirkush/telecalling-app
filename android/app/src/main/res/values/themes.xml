@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Compose paints the entire UI, so the platform theme only needs to be a
+      no-action-bar shell. Using the platform theme avoids pulling in the
+      com.google.android.material dependency purely for a style parent.
+    -->
+    <style name="Theme.Telecalling" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">@color/brand_primary</item>
+        <item name="android:windowBackground">@color/surface</item>
+    </style>
+</resources>

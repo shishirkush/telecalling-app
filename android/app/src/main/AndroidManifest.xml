@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!--
+      CALL_PHONE      : place the call directly from inside the app.
+      READ_PHONE_STATE: required to enumerate the device's SIMs via
+                        TelecomManager.getCallCapablePhoneAccounts(). Without
+                        it we cannot tell single-SIM from dual-SIM and cannot
+                        target a specific SIM.
+
+      NOTE: we deliberately do NOT request READ_CALL_LOG. Google Play restricts
+      it to default-dialer apps, and requesting it is the fastest way to get a
+      telecalling app rejected. Call duration is therefore not auto-captured.
+    -->
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+
+    <uses-feature android:name="android.hardware.telephony" android:required="true" />
+
+    <!-- Android 11+ package visibility: needed to resolve the dialer. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.DIAL" />
+            <data android:scheme="tel" />
+        </intent>
+    </queries>
+
+    <application
+        android:name=".TelecallApplication"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Telecalling">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.Telecalling">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+    </application>
+
+</manifest>
