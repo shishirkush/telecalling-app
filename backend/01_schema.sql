@@ -278,7 +278,8 @@ begin
        -- be immediately re-served on the very next claim if it had a low id.
        c.attempts asc,
        c.last_called_at asc nulls first,
-       c.id asc
+       -- random, not sequential-by-id — see backend/11_random_call_order.sql
+       random()
      limit 1
      for update skip locked
   ),
