@@ -1,5 +1,6 @@
 package com.telecall.app
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -23,6 +24,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        handleIntent(intent)
 
         setContent {
             TelecallTheme {
@@ -82,5 +84,23 @@ class MainActivity : ComponentActivity() {
         // The agent may have granted the Phone permission from Settings while
         // the app was backgrounded; re-read the SIM list on the way back in.
         viewModel.refreshSims()
+    }
+
+    // MainActivity is singleTask (see AndroidManifest.xml) specifically so a
+    // tapped callback-reminder notification routes here instead of stacking
+    // a second instance.
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        val leadId = intent?.getLongExtra(EXTRA_OPEN_LEAD_ID, -1L) ?: -1L
+        if (leadId >= 0) viewModel.openLeadById(leadId)
+    }
+
+    companion object {
+        const val EXTRA_OPEN_LEAD_ID = "open_lead_id"
     }
 }

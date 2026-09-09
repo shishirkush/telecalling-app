@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.telecall.app.call.CallbackScheduler
 import com.telecall.app.call.SimManager
 import com.telecall.app.call.SimOption
 import com.telecall.app.data.CallStatus
@@ -129,9 +130,32 @@ class AppViewModel(
         _state.update { it.copy(loading = true, error = null) }
         viewModelScope.launch {
             when (val r = repo.myQueue()) {
-                is Outcome.Ok -> _state.update { it.copy(loading = false, queue = r.value) }
+                is Outcome.Ok -> {
+                    _state.update { it.copy(loading = false, queue = r.value) }
+                    reconcileCallbackAlarms(r.value)
+                }
                 is Outcome.Err -> _state.update { it.copy(loading = false, error = r.message) }
             }
+        }
+    }
+
+    /**
+     * Re-arms a reminder for every still-open callback in the queue.
+     *
+     * AlarmManager alarms survive the app being killed but not a device
+     * reboot, and this app has no boot receiver re-scheduling them from
+     * scratch — so instead, every queue load (sign-in, refresh, opening
+     * the app) doubles as a chance to notice a missing alarm and re-set
+     * it. FLAG_UPDATE_CURRENT makes re-scheduling an already-armed one a
+     * harmless no-op rather than a duplicate.
+     */
+    private fun reconcileCallbackAlarms(leads: List<Lead>) {
+        val context = getApplication<Application>()
+        val now = System.currentTimeMillis()
+        for (lead in leads) {
+            val triggerAt = lead.callbackAt?.let { parseIsoToEpochMillis(it) } ?: continue
+            if (triggerAt <= now) continue
+            CallbackScheduler.schedule(context, lead.id, lead.name, lead.mobile, triggerAt)
         }
     }
 
@@ -178,6 +202,27 @@ class AppViewModel(
         }
         // Audit trail — the agent is about to see unmasked PAN / DOB / income.
         viewModelScope.launch { repo.logLeadView(lead.id) }
+    }
+
+    /**
+     * Entry point from a tapped callback-reminder notification. The app may
+     * have been fully killed since the alarm was scheduled, so the lead is
+     * not necessarily in [UiState.queue] yet — check there first (instant,
+     * no flicker) and fall back to fetching it directly.
+     */
+    fun openLeadById(id: Long) {
+        val existing = _state.value.queue.firstOrNull { it.id == id }
+        if (existing != null) {
+            openLead(existing)
+            return
+        }
+        viewModelScope.launch {
+            when (val r = repo.getLead(id)) {
+                is Outcome.Ok -> r.value?.let { openLead(it) }
+                    ?: _state.update { it.copy(error = "That callback is no longer on your queue.") }
+                is Outcome.Err -> _state.update { it.copy(error = r.message) }
+            }
+        }
     }
 
     fun backToQueue() {
@@ -290,6 +335,15 @@ class AppViewModel(
                 is Outcome.Err -> _state.update { it.copy(saving = false, error = r.message) }
                 is Outcome.Ok -> {
                     _state.update { it.copy(saving = false, info = "Saved.") }
+                    // Cancel first regardless of the new status — a lead that
+                    // was Call Later and is now something else must not still
+                    // ring later, and one that's Call Later again gets a
+                    // fresh alarm right below rather than two stacked ones.
+                    val context = getApplication<Application>()
+                    CallbackScheduler.cancel(context, lead.id)
+                    if (status == CallStatus.CALL_LATER && s.formCallbackAt != null) {
+                        CallbackScheduler.schedule(context, lead.id, lead.name, lead.mobile, s.formCallbackAt)
+                    }
                     onSaved()
                 }
             }
@@ -377,6 +431,29 @@ class AppViewModel(
 
     private fun iso(epochMillis: Long): String =
         SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.US).format(Date(epochMillis))
+
+    /**
+     * Postgres timestamps come back with a variable number of fractional
+     * second digits, so try the shapes actually seen from this API rather
+     * than one fixed pattern — same tolerance as ui/Format.kt's
+     * formatTimestamp, which this mirrors.
+     */
+    private fun parseIsoToEpochMillis(iso: String): Long? {
+        val patterns = listOf(
+            "yyyy-MM-dd'T'HH:mm:ss.SSSSSSXXX",
+            "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
+            "yyyy-MM-dd'T'HH:mm:ssXXX",
+            "yyyy-MM-dd'T'HH:mm:ss"
+        )
+        for (p in patterns) {
+            try {
+                SimpleDateFormat(p, Locale.US).parse(iso)?.let { return it.time }
+            } catch (e: Exception) {
+                // try the next pattern
+            }
+        }
+        return null
+    }
 
     /** "1990-12-25" -> "25-12-1990" for display in the editor. */
     private fun ddmmyyyy(iso: String): String {

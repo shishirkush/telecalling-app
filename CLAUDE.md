@@ -68,15 +68,31 @@ backend/05_fix_profile_privilege_escalation.sql  SECURITY: stops an agent
                                      promoting themselves to supervisor
 backend/06_agent_edit_lead_details.sql  save_lead_details() RPC +
                                      lead_edit_log audit table
+backend/07_no_answer_status.sql     adds the NO_ANSWER call outcome
+backend/08_fix_queue_reorder.sql    claim_next_lead: don't re-serve a lead
+                                     right after it's released
+backend/09_manager_scoping.sql      profiles.is_admin, manager_agents,
+                                     manages_agent() — see section 4
+backend/10_database_report.sql      v_batch_summary (admin-only whole-pool report)
+backend/11_random_call_order.sql    claim_next_lead: random pick, not
+                                     sequential-by-id, within a priority tier
+backend/12_delete_batch.sql          delete_batch() RPC — admin-only,
+                                     cascades to that batch's call history too
 
 android/app/src/main/java/com/telecall/app/
-  MainActivity.kt              screen routing only
+  MainActivity.kt              screen routing + the notification deep-link
+                                     (EXTRA_OPEN_LEAD_ID, singleTask launch mode)
   AppViewModel.kt              ALL UI state + actions live here
-  TelecallApplication.kt       builds the repository singleton
+  TelecallApplication.kt       builds the repository singleton, creates the
+                                     "callbacks" notification channel
   data/Models.kt               Lead, CallStatus, LeadQuality, Outcome<T>
   data/SupabaseClient.kt       hand-rolled OkHttp client (auth + PostgREST)
   data/LeadRepository.kt       the only thing the ViewModel talks to
   call/SimManager.kt           SIM enumeration + placing the call
+  call/CallbackScheduler.kt    AlarmManager schedule/cancel for one lead's
+                                     Call Later reminder — see section 4
+  call/CallbackAlarmReceiver.kt  fires at the scheduled time, posts the
+                                     notification, deep-links back to the lead
   ui/LoginScreen.kt
   ui/LeadQueueScreen.kt        queue list + "Next lead" FAB
   ui/LeadDetailScreen.kt       record view, call button, SIM dialog, outcome form
@@ -105,6 +121,39 @@ Hilt/Koin/Navigation-Compose unless the app grows enough to need them.
 ## 4. Decisions that were made on purpose
 
 Do not "fix" these without checking why they are this way.
+
+**Call Later reminders are a local notification, not a server push.**
+Saving a Call Later disposition schedules an `AlarmManager` alarm
+(`call/CallbackScheduler.kt`) for the exact moment the agent picked;
+`call/CallbackAlarmReceiver.kt` fires at that time and posts a
+notification that deep-links straight back to the lead
+(`MainActivity.EXTRA_OPEN_LEAD_ID`, which is why `MainActivity` is
+`singleTask` in the manifest — a tapped notification must land in the
+existing instance via `onNewIntent`, not stack a second one).
+
+Two things this trades away, deliberately:
+- **No boot receiver.** AlarmManager alarms survive the app being
+  killed but not a device reboot. Instead of a `BOOT_COMPLETED`
+  receiver, `AppViewModel.refreshQueue()` re-arms a reminder for every
+  open callback in the queue on every load — sign-in, manual refresh,
+  claiming a lead. This self-heals within one app-open after a reboot
+  rather than the instant it happens. Revisit if a real device shows
+  reminders silently missing after a restart.
+- **Exact-alarm permission is best-effort.** `SCHEDULE_EXACT_ALARM` is
+  requested in the manifest, but `CallbackScheduler` checks
+  `canScheduleExactAlarms()` and falls back to a plain (inexact) `set()`
+  rather than skip the reminder — verified on the emulator, where that
+  permission is not auto-granted: the alarm still fired, a bit later
+  than the exact instant, well inside Android's own window rules. On a
+  real device, walk the agent through **Settings → Apps → Telecalling
+  → Alarms & reminders → Allow** for on-time delivery; without it the
+  reminder still arrives, just not necessarily at the exact minute.
+
+Verified end-to-end on the emulator, not just by code review: scheduled
+a callback ~10 minutes out, confirmed the real alarm registered in
+`dumpsys alarm`, waited for it to actually fire, confirmed the posted
+notification's title/content in `dumpsys notification`, then tapped it
+and confirmed it opened the correct lead.
 
 **Agents sign in with a login ID, never an email.** The supervisor issues the
 ID and password out of band and tells the agent. GoTrue is an email/password
@@ -461,8 +510,10 @@ next step if manual `gh release create` becomes a chore, not done yet.
 1. ~~Compile the app.~~ **Done** — builds and runs, see section 5.
 2. **Test the SIM chooser on a real dual-SIM handset.** Now the top item: the
    emulator only ever exercised the single-SIM path.
-3. Supervisor lead re-assignment — right now leads can only be claimed by
-   agents or edited in SQL.
+3. ~~Supervisor lead re-assignment~~ — leads themselves still can't be
+   reassigned outside SQL, but **agent-to-manager assignment is done**
+   (backend/09_manager_scoping.sql + the dashboard's "Manage agent
+   assignments" panel, admin-only).
 4. Password resets. An agent who forgets their password cannot self-serve —
    there is no mailbox to send a reset link to. Today the supervisor changes it
    in the Supabase dashboard and tells them. Fine for a pilot; decide something
@@ -480,6 +531,13 @@ next step if manual `gh release create` becomes a chore, not done yet.
    may be correct, but nobody has decided.
 9. No offline handling. An agent with no signal gets an error, not a queue.
 10. No tests of any kind.
+11. **Confirm the callback reminder on a real handset**, specifically:
+    whether `SCHEDULE_EXACT_ALARM` needs the agent to flip "Alarms &
+    reminders" on manually (varies by OEM), and whether a reminder
+    survives a real reboot before the agent next opens the app (see the
+    no-boot-receiver tradeoff in section 4). Verified thoroughly on the
+    emulator; a real handset's battery-optimization/Doze behavior can
+    differ.
 
 ---
 

@@ -78,7 +78,7 @@ Deno.serve(async (req) => {
 
   // Identify the caller using their own token against the anon-scoped
   // client, then check their role with RLS still in force ("read own
-  // profile" already permits this). Only a supervisor may create agents.
+  // profile" already permits this). Only an admin may create agents.
   const callerClient = createClient(url, anonKey, {
     global: { headers: { Authorization: authHeader } },
   });
@@ -90,12 +90,14 @@ Deno.serve(async (req) => {
 
   const { data: profile, error: profileErr } = await callerClient
     .from("profiles")
-    .select("role, active")
+    .select("role, active, is_admin")
     .eq("id", userData.user.id)
     .single();
 
-  if (profileErr || !profile || profile.role !== "supervisor" || !profile.active) {
-    return json({ error: "Only an active supervisor can create agent accounts." }, 403);
+  // Creating an account is an admin action, not a plain-supervisor one —
+  // same tier as CSV import. See backend/09_manager_scoping.sql.
+  if (profileErr || !profile || profile.role !== "supervisor" || !profile.active || !profile.is_admin) {
+    return json({ error: "Only an admin can create agent accounts." }, 403);
   }
 
   // Admin client — service_role, never exposed beyond this function.

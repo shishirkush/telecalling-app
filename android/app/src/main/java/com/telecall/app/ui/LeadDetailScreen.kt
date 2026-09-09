@@ -114,6 +114,28 @@ fun LeadDetailScreen(
         if (allGranted) onCall(lead.mobile) else permissionLauncher.launch(callPerms)
     }
 
+    // Asked right when it first matters — saving a Call Later — rather than
+    // at app startup with no context for why. Android ignores this call
+    // below API 33 (no such permission exists there, notifications just
+    // work), and saving proceeds either way: a denied reminder still shows
+    // the callback at the top of the queue next time the agent opens the
+    // app, same as before this feature existed.
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { onSave() }
+
+    fun saveOutcome() {
+        if (state.formStatus == CallStatus.CALL_LATER &&
+            android.os.Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            onSave()
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -289,7 +311,7 @@ fun LeadDetailScreen(
             // ---------- Save ----------
             Spacer(Modifier.height(20.dp))
             Button(
-                onClick = onSave,
+                onClick = { saveOutcome() },
                 enabled = state.canSave,
                 modifier = Modifier
                     .fillMaxWidth()

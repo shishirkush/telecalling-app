@@ -17,6 +17,21 @@
     <uses-permission android:name="android.permission.CALL_PHONE" />
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
 
+    <!--
+      Callback reminders (Call Later): a local notification fired by
+      AlarmManager at the time the agent picked.
+        POST_NOTIFICATIONS   : required on Android 13+ to show it at all;
+                                requested at runtime, right when the agent
+                                saves a Call Later outcome.
+        SCHEDULE_EXACT_ALARM : lets the reminder fire close to the exact
+                                time under Doze. CallbackScheduler checks
+                                canScheduleExactAlarms() and falls back to
+                                an inexact alarm rather than none if this
+                                is withheld.
+    -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+
     <uses-feature android:name="android.hardware.telephony" android:required="true" />
 
     <!-- Android 11+ package visibility: needed to resolve the dialer. -->
@@ -41,6 +56,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTask"
             android:screenOrientation="portrait"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.Telecalling">
@@ -49,6 +65,13 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Tapping a callback reminder while the app is already running
+             must land in this same instance (via onNewIntent), not stack a
+             second one — hence singleTask above. -->
+        <receiver
+            android:name=".call.CallbackAlarmReceiver"
+            android:exported="false" />
 
     </application>
 

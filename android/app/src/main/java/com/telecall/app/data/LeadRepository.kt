@@ -49,6 +49,20 @@ class LeadRepository(private val client: SupabaseClient) {
     }
 
     /**
+     * One lead by id, for opening a callback reminder notification straight
+     * to its detail screen — the app may have been killed since the alarm
+     * was scheduled, so there is no guarantee it is already in [myQueue].
+     * Returns null (not an error) if the lead is no longer this agent's,
+     * e.g. it was re-dispositioned by someone else in the meantime.
+     */
+    suspend fun getLead(id: Long): Outcome<Lead?> =
+        when (val r = client.get("leads", "id=eq.$id&select=*&limit=1")) {
+            is Outcome.Err -> r
+            is Outcome.Ok -> runCatching { json.decodeFromString<List<Lead>>(r.value) }
+                .fold({ Outcome.Ok(it.firstOrNull()) }, { Outcome.Err("Could not read that lead: ${it.message}") })
+        }
+
+    /**
      * Pull the next unworked lead from the shared pool. Server-side this uses
      * FOR UPDATE SKIP LOCKED, so two agents tapping this simultaneously get
      * two different customers rather than both dialling the same one.
