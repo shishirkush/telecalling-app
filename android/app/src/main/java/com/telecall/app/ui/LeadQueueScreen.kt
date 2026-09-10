@@ -31,10 +31,17 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -56,6 +63,16 @@ fun LeadQueueScreen(
     onRefresh: () -> Unit,
     onSignOut: () -> Unit
 ) {
+    // Split, not two separate queries: myQueue() already returns every open
+    // assigned lead in one call, so this is just "which half are we looking
+    // at" — a fresh claim with no callback_at, or a Call Later still due.
+    // Re-dispositioning from either tab is the same LeadDetailScreen + save
+    // flow as today; nothing new was needed there.
+    val callbackLeads = state.queue.filter { it.callbackAt != null }
+    val freshLeads = state.queue.filter { it.callbackAt == null }
+    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+    val visibleLeads = if (selectedTab == 1) callbackLeads else freshLeads
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -95,31 +112,48 @@ fun LeadQueueScreen(
             )
         }
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
-            when {
-                state.loading && state.queue.isEmpty() -> {
-                    CircularProgressIndicator(Modifier.align(Alignment.Center))
-                }
-                state.queue.isEmpty() -> {
-                    EmptyQueue(
-                        message = state.info ?: state.error
-                            ?: "Nothing assigned to you yet.",
-                        modifier = Modifier.align(Alignment.Center)
-                    )
-                }
-                else -> {
-                    LazyColumn(
-                        contentPadding = PaddingValues(12.dp, 8.dp, 12.dp, 88.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(state.queue, key = { it.id }) { lead ->
-                            LeadCard(lead = lead, onClick = { onOpenLead(lead) })
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            TabRow(selectedTabIndex = selectedTab) {
+                Tab(
+                    selected = selectedTab == 0,
+                    onClick = { selectedTab = 0 },
+                    text = { Text("Queue") }
+                )
+                Tab(
+                    selected = selectedTab == 1,
+                    onClick = { selectedTab = 1 },
+                    text = { Text(if (callbackLeads.isEmpty()) "CallBacks" else "CallBacks (${callbackLeads.size})") }
+                )
+            }
+
+            Box(Modifier.fillMaxSize()) {
+                when {
+                    state.loading && state.queue.isEmpty() -> {
+                        CircularProgressIndicator(Modifier.align(Alignment.Center))
+                    }
+                    visibleLeads.isEmpty() -> {
+                        EmptyQueue(
+                            message = state.info ?: state.error ?: if (selectedTab == 1)
+                                "No callbacks pending."
+                            else
+                                "Nothing assigned to you yet.",
+                            showNextLeadHint = selectedTab == 0,
+                            modifier = Modifier.align(Alignment.Center)
+                        )
+                    }
+                    else -> {
+                        LazyColumn(
+                            contentPadding = PaddingValues(12.dp, 8.dp, 12.dp, 88.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(visibleLeads, key = { it.id }) { lead ->
+                                LeadCard(lead = lead, onClick = { onOpenLead(lead) })
+                            }
                         }
                     }
                 }
-            }
 
-            if (state.error != null && state.queue.isNotEmpty()) {
+                if (state.error != null && state.queue.isNotEmpty()) {
                 Card(
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.errorContainer
@@ -136,13 +170,18 @@ fun LeadQueueScreen(
                         modifier = Modifier.padding(12.dp)
                     )
                 }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun EmptyQueue(message: String, modifier: Modifier = Modifier) {
+private fun EmptyQueue(
+    message: String,
+    showNextLeadHint: Boolean = true,
+    modifier: Modifier = Modifier
+) {
     Column(
         modifier = modifier.padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -153,13 +192,15 @@ private fun EmptyQueue(message: String, modifier: Modifier = Modifier) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
         )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            text = "Tap \"Next lead\" to pull one from the pool.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center
-        )
+        if (showNextLeadHint) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "Tap \"Next lead\" to pull one from the pool.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+        }
     }
 }
 
@@ -201,19 +242,23 @@ private fun LeadCard(lead: Lead, onClick: () -> Unit) {
                 )
 
                 if (lead.callbackAt != null) {
+                    val overdue = isPast(lead.callbackAt)
+                    val tint = if (overdue) MaterialTheme.colorScheme.error else statusColor(CallStatus.CALL_LATER)
                     Spacer(Modifier.height(6.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
                             Icons.Filled.Schedule,
                             contentDescription = null,
-                            tint = statusColor(CallStatus.CALL_LATER),
+                            tint = tint,
                             modifier = Modifier.size(14.dp)
                         )
                         Spacer(Modifier.width(4.dp))
                         Text(
-                            text = "Callback ${formatTimestamp(lead.callbackAt)}",
+                            text = "Callback ${formatTimestamp(lead.callbackAt)}" +
+                                if (overdue) " · Overdue" else "",
                             style = MaterialTheme.typography.labelMedium,
-                            color = statusColor(CallStatus.CALL_LATER)
+                            fontWeight = if (overdue) FontWeight.SemiBold else FontWeight.Normal,
+                            color = tint
                         )
                     }
                 }

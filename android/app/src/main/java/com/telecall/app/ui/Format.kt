@@ -56,6 +56,26 @@ fun formatTimestamp(iso: String?): String {
     return iso
 }
 
+/** Same parsing tolerance as [formatTimestamp], for the "is this due yet" check. */
+fun isPast(iso: String?): Boolean {
+    if (iso.isNullOrBlank()) return false
+    val patterns = listOf(
+        "yyyy-MM-dd'T'HH:mm:ss.SSSSSSXXX",
+        "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
+        "yyyy-MM-dd'T'HH:mm:ssXXX",
+        "yyyy-MM-dd'T'HH:mm:ss"
+    )
+    for (p in patterns) {
+        try {
+            val d = SimpleDateFormat(p, Locale.US).parse(iso)
+            if (d != null) return d.before(Date())
+        } catch (e: Exception) {
+            // try the next pattern
+        }
+    }
+    return false
+}
+
 fun formatEpoch(millis: Long?): String =
     if (millis == null) "Not set"
     else SimpleDateFormat("dd MMM yyyy, h:mm a", Locale.US).format(Date(millis))
