@@ -1,5 +1,9 @@
 package com.telecall.app.ui
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -46,6 +50,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -53,6 +58,9 @@ import androidx.compose.ui.unit.dp
 import com.telecall.app.UiState
 import com.telecall.app.data.CallStatus
 import com.telecall.app.data.Lead
+
+/** Where "Apply Card" sends the agent — cardadda.in, not part of this app. */
+private const val APPLY_CARD_URL = "https://www.cardadda.in/"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -72,6 +80,8 @@ fun LeadQueueScreen(
     val freshLeads = state.queue.filter { it.callbackAt == null }
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     val visibleLeads = if (selectedTab == 1) callbackLeads else freshLeads
+
+    val context = LocalContext.current
 
     Scaffold(
         topBar = {
@@ -123,6 +133,20 @@ fun LeadQueueScreen(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
                     text = { Text(if (callbackLeads.isEmpty()) "CallBacks" else "CallBacks (${callbackLeads.size})") }
+                )
+                // Not a real content tab — tapping it sends the agent straight
+                // to cardadda.in in the browser and leaves selectedTab alone,
+                // so it never renders as "selected" (there is no third list).
+                Tab(
+                    selected = false,
+                    onClick = {
+                        try {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(APPLY_CARD_URL)))
+                        } catch (e: ActivityNotFoundException) {
+                            Toast.makeText(context, "No browser app found.", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    text = { Text("Apply Card") }
                 )
             }
 

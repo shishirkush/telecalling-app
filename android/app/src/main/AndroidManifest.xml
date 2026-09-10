@@ -34,11 +34,16 @@
 
     <uses-feature android:name="android.hardware.telephony" android:required="true" />
 
-    <!-- Android 11+ package visibility: needed to resolve the dialer. -->
+    <!-- Android 11+ package visibility: needed to resolve the dialer, and
+         (below) a browser for the "Apply Card" tab's link to cardadda.in. -->
     <queries>
         <intent>
             <action android:name="android.intent.action.DIAL" />
             <data android:scheme="tel" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
         </intent>
     </queries>
 
