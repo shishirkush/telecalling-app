@@ -268,6 +268,16 @@ begin
             or c.locked_at < now() - stale_after)
        -- skip callbacks that are not due yet
        and (c.callback_at is null or c.callback_at <= now())
+       -- skip leads whose batch admin has switched off — a lead with no
+       -- batch has no switch, so it's always eligible; a batch with no
+       -- row here yet defaults to active too (see backend/13_batch_active_toggle.sql)
+       and (
+         c.batch is null
+         or coalesce(
+              (select bs.is_active from public.batch_settings bs where bs.batch = c.batch),
+              true
+            )
+       )
      order by
        -- due callbacks first
        (c.callback_at is not null) desc,
