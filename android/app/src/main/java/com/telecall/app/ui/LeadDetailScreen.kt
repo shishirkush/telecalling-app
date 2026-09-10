@@ -97,12 +97,20 @@ fun LeadDetailScreen(
     onSaveDetails: () -> Unit
 ) {
     val context = LocalContext.current
-    val callPerms = arrayOf(Manifest.permission.CALL_PHONE, Manifest.permission.READ_PHONE_STATE)
+    // SEND_SMS rides along here so it's one prompt, not two — the agent
+    // sees a single system dialog covering calling and the Apply Card text
+    // the first time they tap a number, never again after that.
+    val callPerms = arrayOf(
+        Manifest.permission.CALL_PHONE,
+        Manifest.permission.READ_PHONE_STATE,
+        Manifest.permission.SEND_SMS
+    )
 
     // Whatever the user answers, we proceed: with permission we dial straight
     // out of the chosen SIM, without it SimManager falls back to opening the
     // system dialer. Denying the permission degrades the flow, it never
-    // blocks the agent from working.
+    // blocks the agent from working. Same tolerance for SEND_SMS — a denial
+    // just means the Apply Card text quietly doesn't go out.
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { onCall(lead.mobile) }

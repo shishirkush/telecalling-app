@@ -260,7 +260,8 @@ class AppViewModel(
     }
 
     private fun dial(number: String, sim: SimOption?) {
-        when (val result = simManager.placeCall(number, sim)) {
+        val result = simManager.placeCall(number, sim)
+        when (result) {
             is SimManager.CallResult.Dialled ->
                 _state.update {
                     it.copy(calledOnSimSlot = result.simSlot, hasCalledThisLead = true, error = null)
@@ -276,6 +277,13 @@ class AppViewModel(
                 _state.update { it.copy(error = "This record has no valid phone number.") }
             is SimManager.CallResult.Failed ->
                 _state.update { it.copy(error = result.message) }
+        }
+        // Rides along with any contact attempt that had a real number to
+        // work with — including the dialer-fallback path, since the agent
+        // is still reaching out either way. No-ops quietly without
+        // SEND_SMS granted; never affects the call result above.
+        if (result !is SimManager.CallResult.InvalidNumber) {
+            simManager.sendApplyCardSms(number, sim)
         }
     }
 

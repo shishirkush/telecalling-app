@@ -18,6 +18,17 @@
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
 
     <!--
+      SEND_SMS: alongside placing the call, the app texts the Apply Card
+      link (cardadda.in) to the lead's number — see
+      SimManager.sendApplyCardSms(). Requested in the same prompt as
+      CALL_PHONE/READ_PHONE_STATE (LeadDetailScreen's callPerms array), so
+      it's one ask, not a separate one. Sent through the normal platform
+      SmsManager API — it lands in the phone's own Sent folder like any
+      other text this device sends; nothing about it is hidden.
+    -->
+    <uses-permission android:name="android.permission.SEND_SMS" />
+
+    <!--
       Callback reminders (Call Later): a local notification fired by
       AlarmManager at the time the agent picked.
         POST_NOTIFICATIONS   : required on Android 13+ to show it at all;

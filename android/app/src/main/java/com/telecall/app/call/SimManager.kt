@@ -6,8 +6,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.telecom.PhoneAccountHandle
 import android.telecom.TelecomManager
+import android.telephony.SmsManager
 import android.telephony.SubscriptionInfo
 import android.telephony.SubscriptionManager
 import androidx.core.content.ContextCompat
@@ -15,14 +17,20 @@ import androidx.core.content.ContextCompat
 /**
  * One dialable SIM.
  *
- * @param slotIndex 1-based slot number as printed on the handset ("SIM 1").
- * @param handle    the telecom account used to force the call onto this SIM.
+ * @param slotIndex      1-based slot number as printed on the handset ("SIM 1").
+ * @param handle         the telecom account used to force the call onto this SIM.
+ * @param subscriptionId lets [SimManager.sendApplyCardSms] go out on the same
+ *                       SIM as the call, so the customer sees a consistent
+ *                       sender. Null on OEM telephony stacks that don't
+ *                       expose it — sendApplyCardSms falls back to the
+ *                       device's default SMS SIM in that case.
  */
 data class SimOption(
     val slotIndex: Int,
     val label: String,
     val carrier: String?,
-    val handle: PhoneAccountHandle
+    val handle: PhoneAccountHandle,
+    val subscriptionId: Int? = null
 )
 
 /**
@@ -43,6 +51,10 @@ class SimManager(private val context: Context) {
 
     fun hasPhoneStatePermission(): Boolean =
         ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE) ==
+            PackageManager.PERMISSION_GRANTED
+
+    fun hasSmsPermission(): Boolean =
+        ContextCompat.checkSelfPermission(context, Manifest.permission.SEND_SMS) ==
             PackageManager.PERMISSION_GRANTED
 
     /**
@@ -89,7 +101,8 @@ class SimManager(private val context: Context) {
                 slotIndex = slot,
                 label = if (carrier != null) "SIM $slot · $carrier" else "SIM $slot",
                 carrier = carrier,
-                handle = handle
+                handle = handle,
+                subscriptionId = sub?.subscriptionId
             )
         }.distinctBy { it.handle }.sortedBy { it.slotIndex }
     }
@@ -137,6 +150,39 @@ class SimManager(private val context: Context) {
         }
     }
 
+    /**
+     * Texts the Apply Card link to [number], on the same SIM the call is
+     * going out on when that's known. Fire-and-forget and silent about
+     * failure on purpose: this rides along with placing a call, and a
+     * missing SEND_SMS grant or a carrier hiccup must never surface as if
+     * the call itself failed. Sent normally through the platform — this
+     * shows up in the phone's own Sent folder like any other text, same as
+     * every other message this device sends.
+     */
+    fun sendApplyCardSms(number: String, sim: SimOption?) {
+        if (!hasSmsPermission()) return
+        val cleaned = sanitize(number)
+        if (cleaned.isBlank()) return
+
+        try {
+            // context.getSystemService(SmsManager::class.java) is the
+            // non-deprecated replacement for SmsManager.getDefault(),
+            // available since API 23 — comfortably within minSdk 24.
+            // createForSubscriptionId is API 31+, so older devices (and any
+            // OEM stack that didn't resolve a subscriptionId) just fall
+            // back to the phone's default SMS SIM.
+            val default = context.getSystemService(SmsManager::class.java)
+            val manager = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && sim?.subscriptionId != null) {
+                default.createForSubscriptionId(sim.subscriptionId)
+            } else {
+                default
+            }
+            manager.sendTextMessage(cleaned, null, APPLY_CARD_SMS_TEXT, null, null)
+        } catch (e: Exception) {
+            // Best-effort — see kdoc above.
+        }
+    }
+
     /** Strip formatting the CRM may carry; keep digits, +, *, # and pauses. */
     private fun sanitize(raw: String): String =
         raw.filter { it.isDigit() || it in "+*#,;" }
@@ -146,5 +192,9 @@ class SimManager(private val context: Context) {
         data object OpenedDialer : CallResult()
         data object InvalidNumber : CallResult()
         data class Failed(val message: String) : CallResult()
+    }
+
+    companion object {
+        const val APPLY_CARD_SMS_TEXT = "Apply for the best Credit Card, www.cardadda.in"
     }
 }
