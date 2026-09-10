@@ -78,6 +78,9 @@ backend/11_random_call_order.sql    claim_next_lead: random pick, not
                                      sequential-by-id, within a priority tier
 backend/12_delete_batch.sql          delete_batch() RPC — admin-only,
                                      cascades to that batch's call history too
+backend/13_batch_active_toggle.sql  batch_settings (admin-only on/off switch
+                                     per batch); claim_next_lead skips an
+                                     inactive batch — see section 4
 
 android/app/src/main/java/com/telecall/app/
   MainActivity.kt              screen routing + the notification deep-link
@@ -299,6 +302,28 @@ untouched-before-retried, then least-recently-touched) is unchanged —
 only leads that are otherwise equal get shuffled. This stops agents
 racing to claim low-id records first and leaving the tail of a batch
 under-called. `backend/11_random_call_order.sql`.
+
+**A batch's on/off switch defaults to active, both for existing batches
+and new imports.** `batch_settings` (`backend/13_batch_active_toggle.sql`)
+holds one row per batch; `claim_next_lead()` skips a batch only when
+its row says `is_active = false` explicitly. A batch with no row at
+all — including every batch that existed before this migration, via
+its backfill — is treated as active by `coalesce(..., true)`, both in
+`claim_next_lead()` and in `v_batch_summary`. This was deliberate: an
+admin should have to explicitly switch a batch off to stop it being
+served, never the other way around, so this migration (or a batch
+somehow missing its settings row) cannot silently stop calling that
+was already happening. A lead with no batch has no switch to flip and
+is always eligible — the dashboard's toggle column shows "always on"
+for the `(no batch)` row rather than a button.
+
+The dashboard writes `batch_settings` directly (`sb.from("batch_settings")
+.upsert(...)`), same as it writes `leads` directly for CSV import —
+RLS (admin-only, matching `leads`) is the enforcement, not an RPC. This
+is a reversible settings flip, not a destructive action like
+`delete_batch()`, so the confirmation is a plain `confirm()` before
+switching OFF (not the typed-name prompt Delete uses), and there's no
+confirmation at all for switching back ON.
 
 **Deleting a batch is admin-only and irreversible, so the dashboard
 makes it deliberately hard to do by accident.** `delete_batch()`
