@@ -88,13 +88,15 @@ android/app/src/main/java/com/telecall/app/
   data/Models.kt               Lead, CallStatus, LeadQuality, Outcome<T>
   data/SupabaseClient.kt       hand-rolled OkHttp client (auth + PostgREST)
   data/LeadRepository.kt       the only thing the ViewModel talks to
-  call/SimManager.kt           SIM enumeration + placing the call
+  call/SimManager.kt           SIM enumeration, placing the call, and texting
+                                     the Apply Card link alongside it — section 4
   call/CallbackScheduler.kt    AlarmManager schedule/cancel for one lead's
                                      Call Later reminder — see section 4
   call/CallbackAlarmReceiver.kt  fires at the scheduled time, posts the
                                      notification, deep-links back to the lead
   ui/LoginScreen.kt
-  ui/LeadQueueScreen.kt        queue list + "Next lead" FAB
+  ui/LeadQueueScreen.kt        Queue / CallBacks / Apply Card tabs, "Next
+                                     lead" FAB — see section 4
   ui/LeadDetailScreen.kt       record view, call button, SIM dialog, outcome form
   ui/Format.kt                 currency/date/mask helpers  ← masking lives here
   ui/theme/Theme.kt
@@ -290,6 +292,67 @@ server-side calling (Exotel / Knowlarity / Twilio), not a permission.
 recommendation. The compensating control is `lead_access_log`, written on every
 lead open. `MASK_SENSITIVE` in `android/app/build.gradle.kts` flips it; the
 masking logic already exists in `ui/Format.kt`.
+
+**`claim_next_lead()`'s final tiebreaker is `random()`, not `id asc`.**
+Everything above it in the `ORDER BY` (due callbacks first, then
+untouched-before-retried, then least-recently-touched) is unchanged —
+only leads that are otherwise equal get shuffled. This stops agents
+racing to claim low-id records first and leaving the tail of a batch
+under-called. `backend/11_random_call_order.sql`.
+
+**Deleting a batch is admin-only and irreversible, so the dashboard
+makes it deliberately hard to do by accident.** `delete_batch()`
+(`backend/12_delete_batch.sql`) checks `is_admin()` itself — the
+button being hidden from agents in the dashboard UI is not what
+enforces that. It counts and deletes that batch's `call_dispositions`
+before deleting the `leads` rows (which would cascade anyway), returns
+both counts, and raises if the batch name matched zero rows rather
+than silently no-op'ing. The dashboard button (`#batchTable .delete-batch`)
+requires the admin to type the batch's exact name into a `prompt()`
+before calling the RPC — there is no plain confirm dialog for this one.
+
+**The CallBacks tab is a client-side split of the same queue, not a
+second query.** `myQueue()` already returns every open lead assigned to
+the agent in one call; `LeadQueueScreen` just partitions
+`state.queue` into `callbackAt != null` vs `callbackAt == null` and
+renders whichever `TabRow` tab is selected. Re-dispositioning from
+either tab reuses the existing `LeadDetailScreen` + `saveDisposition()`
+path unchanged — there is no separate "callback mode". An overdue
+callback (`callbackAt` in the past) renders in red via `Format.isPast()`.
+
+**"Apply Card" is a `Tab` that isn't really a tab.** It sits in the same
+`TabRow` as Queue/CallBacks for visual consistency, but its `onClick`
+just fires `ACTION_VIEW` for `https://www.cardadda.in/` in the device
+browser and leaves `selectedTab` untouched — it never renders selected
+and there is no third list behind it. Requires the `<queries>` entry
+for `https` `ACTION_VIEW` in the manifest (Android 11+ package
+visibility) or the intent silently fails to resolve on some OEM builds.
+
+**Every call attempt also texts the Apply Card link, transparently.**
+`SimManager.sendApplyCardSms()` fires right after `placeCall()` inside
+`AppViewModel.dial()`, sending `"Apply for the best Credit Card,
+www.cardadda.in"` to the same number being called, on the same SIM
+when one was chosen. `SEND_SMS` is requested in the same permission
+array as `CALL_PHONE`/`READ_PHONE_STATE` (`LeadDetailScreen`'s
+`callPerms`), so it's one system prompt, not two. **This was a
+deliberate scope decision, not an oversight**: the original ask was
+for the SMS to be hidden from the Sent folder and deleted immediately
+after sending, which was declined — that pattern (send silently, hide
+the evidence from the device's own owner) is indistinguishable from
+SMS fraud/spyware, and there is no way to delete from the system SMS
+provider without the app becoming the device's default SMS handler, a
+disproportionate permission elevation for this. The shipped version is
+the transparent alternative the user explicitly approved instead: sent
+through the plain `SmsManager` API, lands in the phone's own Sent
+folder like any other text. Verified live: `content://sms/sent`
+shows the message with the correct number and body after a real test
+call. **Do not add code that deletes or hides this message from the
+system SMS provider.**
+
+`sendApplyCardSms()` is fire-and-forget and swallows its own
+exceptions — a missing `SEND_SMS` grant or a carrier hiccup must never
+surface as if the call itself had failed; the call result is reported
+independently in `dial()`.
 
 ---
 
@@ -538,6 +601,13 @@ next step if manual `gh release create` becomes a chore, not done yet.
     no-boot-receiver tradeoff in section 4). Verified thoroughly on the
     emulator; a real handset's battery-optimization/Doze behavior can
     differ.
+12. **Confirm the Apply Card SMS actually reaches the customer's phone on a
+    real handset.** Verified end-to-end on the emulator (`content://sms/sent`
+    shows the message with the correct number/body after a real call), but
+    the emulator's modem is virtual — a real device is needed to confirm the
+    carrier actually delivers it, and that `sendTextMessage`'s silent
+    exception-swallowing (section 4) isn't masking real-world SIM/carrier
+    failures an agent should know about.
 
 ---
 
