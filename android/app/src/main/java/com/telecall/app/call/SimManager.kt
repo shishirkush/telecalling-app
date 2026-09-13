@@ -1,9 +1,13 @@
 package com.telecall.app.call
 
+import android.app.Activity
+import android.app.PendingIntent
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -12,6 +16,7 @@ import android.telecom.TelecomManager
 import android.telephony.SmsManager
 import android.telephony.SubscriptionInfo
 import android.telephony.SubscriptionManager
+import android.util.Log
 import androidx.core.content.ContextCompat
 
 /**
@@ -44,6 +49,37 @@ data class SimOption(
  * dialling — which is exactly the behaviour in the spec.
  */
 class SimManager(private val context: Context) {
+
+    // sendTextMessage() with a null sentIntent hands the text off to the
+    // radio and returns immediately — a real carrier-level failure (no
+    // service, radio off, blocked) never throws and never shows up in
+    // content://sms/sent's presence alone. This receiver is the only way
+    // to see that outcome; an emulator's virtual modem can't exercise it,
+    // which is why the emulator-only verification before v1.5.0 couldn't
+    // have caught a real-device carrier failure.
+    private val smsResultReceiver = object : BroadcastReceiver() {
+        override fun onReceive(ctx: Context, intent: Intent) {
+            val number = intent.getStringExtra(EXTRA_NUMBER)
+            val outcome = when (resultCode) {
+                Activity.RESULT_OK -> "sent"
+                SmsManager.RESULT_ERROR_GENERIC_FAILURE -> "generic failure"
+                SmsManager.RESULT_ERROR_NO_SERVICE -> "no service"
+                SmsManager.RESULT_ERROR_NULL_PDU -> "null pdu"
+                SmsManager.RESULT_ERROR_RADIO_OFF -> "radio off"
+                else -> "unknown code $resultCode"
+            }
+            Log.i(TAG, "Apply Card SMS to $number: $outcome")
+        }
+    }
+
+    init {
+        ContextCompat.registerReceiver(
+            context,
+            smsResultReceiver,
+            IntentFilter(SMS_SENT_ACTION),
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+    }
 
     fun hasCallPermission(): Boolean =
         ContextCompat.checkSelfPermission(context, Manifest.permission.CALL_PHONE) ==
@@ -160,7 +196,10 @@ class SimManager(private val context: Context) {
      * every other message this device sends.
      */
     fun sendApplyCardSms(number: String, sim: SimOption?) {
-        if (!hasSmsPermission()) return
+        if (!hasSmsPermission()) {
+            Log.w(TAG, "sendApplyCardSms: SEND_SMS not granted, skipping")
+            return
+        }
         val cleaned = sanitize(number)
         if (cleaned.isBlank()) return
 
@@ -177,9 +216,18 @@ class SimManager(private val context: Context) {
             } else {
                 default
             }
-            manager.sendTextMessage(cleaned, null, APPLY_CARD_SMS_TEXT, null, null)
+            // sentIntent only feeds smsResultReceiver's logcat line above —
+            // it never touches app state or the call result. See its kdoc
+            // for why this is worth having despite the fire-and-forget design.
+            val sentIntent = PendingIntent.getBroadcast(
+                context,
+                cleaned.hashCode(),
+                Intent(SMS_SENT_ACTION).setPackage(context.packageName).putExtra(EXTRA_NUMBER, cleaned),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            manager.sendTextMessage(cleaned, null, APPLY_CARD_SMS_TEXT, sentIntent, null)
         } catch (e: Exception) {
-            // Best-effort — see kdoc above.
+            Log.e(TAG, "sendApplyCardSms failed for $cleaned", e)
         }
     }
 
@@ -196,5 +244,8 @@ class SimManager(private val context: Context) {
 
     companion object {
         const val APPLY_CARD_SMS_TEXT = "Apply for the best Credit Card, www.cardadda.in"
+        private const val TAG = "SimManager"
+        private const val SMS_SENT_ACTION = "com.telecall.app.APPLY_CARD_SMS_SENT"
+        private const val EXTRA_NUMBER = "number"
     }
 }
