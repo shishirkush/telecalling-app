@@ -43,6 +43,18 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
+    <!--
+      REQUEST_INSTALL_PACKAGES: this app is sideloaded (not Play-distributed),
+      so update.UpdateInstaller is the only update mechanism there is — it
+      downloads the release APK and hands it to the system installer.
+      Declaring this does not skip the OS's own "Install unknown apps" gate;
+      it only lets the app *offer* the install screen instead of the agent
+      needing to find a browser and their Downloads folder themselves. The
+      agent still has to tap through it, same as SEND_SMS or exact alarms
+      above — Android decides that, not this app.
+    -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <uses-feature android:name="android.hardware.telephony" android:required="true" />
 
     <!-- Android 11+ package visibility: needed to resolve the dialer, and
@@ -88,6 +100,19 @@
         <receiver
             android:name=".call.CallbackAlarmReceiver"
             android:exported="false" />
+
+        <!-- Lets UpdateInstaller hand the downloaded APK's content:// URI to
+             the system package installer without exposing app-private
+             storage as a whole. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
     </application>
 

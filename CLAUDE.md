@@ -105,7 +105,12 @@ android/app/src/main/java/com/telecall/app/
                                      lead" FAB — see section 4
   ui/LeadDetailScreen.kt       record view, call button, SIM dialog, outcome form
   ui/Format.kt                 currency/date/mask helpers  ← masking lives here
+  ui/UpdateBanner.kt           shown over Queue/Detail when an update exists
   ui/theme/Theme.kt
+  update/UpdateChecker.kt      polls GitHub Releases, compares to
+                                     BuildConfig.VERSION_NAME — see section 4
+  update/UpdateInstaller.kt    DownloadManager + FileProvider → system
+                                     installer — see section 4
 
 dashboard/index.html           entire dashboard, one file, no build step.
                                      "Create agent" form calls the Edge Function below
@@ -398,6 +403,54 @@ never be able to block or fail the call/SMS flow it is only observing.
 `SimManager` stays telephony-only and has no network/repo dependency;
 `AppViewModel` owns the side effect, same separation as everywhere
 else in this app.
+
+**The app checks GitHub Releases for updates itself — there is no other
+mechanism, because this app is sideloaded, not Play-distributed.**
+`update.UpdateChecker` hits `api.github.com/repos/.../releases/latest`
+once per cold launch (`AppViewModel.init`), compares `tag_name` against
+`BuildConfig.VERSION_NAME`, and — if newer — surfaces an `UpdateInfo`
+that `MainActivity` renders as `UpdateBanner` over Queue/Detail (never
+Login, and never blocking: this app's job is placing calls, and a
+briefly unreachable GitHub must not gate that). Tapping Update calls
+`update.UpdateInstaller`, which downloads the release APK via
+`DownloadManager` into the app's own external-files directory (no
+storage permission needed on any supported API level) and, on
+completion, hands a `FileProvider` content URI to the system installer.
+
+**Critical, easy to silently break: `versionCode` and `versionName` in
+`app/build.gradle.kts` must be bumped on every single release, matching
+the git tag.** Every release through v1.6.0 shipped with these stuck at
+their initial `1` / `"1.0.0"` — nothing could ever have told an
+installed app it was behind, which is exactly the "which agents are on
+the latest build" question that motivated this feature. Two distinct
+failure modes if this slips again:
+- Forget to bump `versionName` → `UpdateChecker` never detects the new
+  release exists (it looks identical to what's already installed).
+- Bump `versionName` but not `versionCode`, to something *lower* than
+  what real phones already have installed → the banner correctly shows
+  and downloads fine, but the system installer rejects it with
+  `INSTALL_FAILED_VERSION_DOWNGRADE`, silently, with no way for the
+  agent to explain what happened. Caught exactly this way in testing:
+  a disposable test build with a higher `versionCode` than the real
+  (buggy, stuck-at-1) v1.6.0 asset reproduced the failure precisely.
+  `versionCode` only ever needs to keep increasing release to release;
+  it is not otherwise compared to anything.
+
+**Android will never let this app silently replace itself.** Even with
+`REQUEST_INSTALL_PACKAGES` declared, the very first install from this
+source prompts the agent through Settings → "Allow from this source"
+once, then every install (including every future update) still shows
+the system's own "Update this app?" confirmation. That is intentional
+OS behavior for a sideloaded app, not a bug to route around — the same
+tier of one-time friction as the SEND_SMS and exact-alarm permissions
+elsewhere in this app.
+
+Verified end-to-end on the emulator: a disposable build reporting
+itself as an older version correctly showed the banner, downloaded the
+real latest GitHub release via `DownloadManager`, and handed off to the
+system installer, which recognized it as a legitimate update to the
+same signed app (not a fresh/unknown install) before the version-code
+issue above was found and fixed.
 
 ---
 

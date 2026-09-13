@@ -5,12 +5,17 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import com.telecall.app.ui.LeadDetailScreen
 import com.telecall.app.ui.LeadQueueScreen
 import com.telecall.app.ui.LoginScreen
+import com.telecall.app.ui.UpdateBanner
 import com.telecall.app.ui.theme.TelecallTheme
 
 class MainActivity : ComponentActivity() {
@@ -30,49 +35,65 @@ class MainActivity : ComponentActivity() {
             TelecallTheme {
                 val state by viewModel.state.collectAsState()
 
-                when (state.screen) {
-                    Screen.LOGIN -> LoginScreen(
-                        state = state,
-                        onSignIn = viewModel::signIn
-                    )
+                Box(Modifier.fillMaxSize()) {
+                    when (state.screen) {
+                        Screen.LOGIN -> LoginScreen(
+                            state = state,
+                            onSignIn = viewModel::signIn
+                        )
 
-                    Screen.QUEUE -> LeadQueueScreen(
-                        state = state,
-                        onOpenLead = viewModel::openLead,
-                        onClaimNext = viewModel::claimNext,
-                        onRefresh = viewModel::refreshQueue,
-                        onSignOut = viewModel::signOut
-                    )
+                        Screen.QUEUE -> LeadQueueScreen(
+                            state = state,
+                            onOpenLead = viewModel::openLead,
+                            onClaimNext = viewModel::claimNext,
+                            onRefresh = viewModel::refreshQueue,
+                            onSignOut = viewModel::signOut
+                        )
 
-                    Screen.DETAIL -> {
-                        val lead = state.selected
-                        if (lead == null) {
-                            // Defensive: never mutate state during composition.
-                            LaunchedEffect(Unit) { viewModel.backToQueue() }
-                        } else {
-                            LeadDetailScreen(
-                                state = state,
-                                lead = lead,
-                                onBack = viewModel::backToQueue,
-                                onCall = viewModel::onMobileTapped,
-                                onSimChosen = viewModel::onSimChosen,
-                                onDismissSimPicker = viewModel::dismissSimPicker,
-                                onStatus = viewModel::setStatus,
-                                onQuality = viewModel::setQuality,
-                                onRemarks = viewModel::setRemarks,
-                                onCallbackAt = viewModel::setCallbackAt,
-                                onSave = { viewModel.saveDisposition { viewModel.backToQueue() } },
-                                onStartEdit = viewModel::startEditingDetails,
-                                onCancelEdit = viewModel::cancelEditingDetails,
-                                onEditName = viewModel::onEditName,
-                                onEditEmail = viewModel::onEditEmail,
-                                onEditDob = viewModel::onEditDob,
-                                onEditCompany = viewModel::onEditCompany,
-                                onEditIncome = viewModel::onEditIncome,
-                                onEditAddress = viewModel::onEditAddress,
-                                onSaveDetails = viewModel::saveDetails
-                            )
+                        Screen.DETAIL -> {
+                            val lead = state.selected
+                            if (lead == null) {
+                                // Defensive: never mutate state during composition.
+                                LaunchedEffect(Unit) { viewModel.backToQueue() }
+                            } else {
+                                LeadDetailScreen(
+                                    state = state,
+                                    lead = lead,
+                                    onBack = viewModel::backToQueue,
+                                    onCall = viewModel::onMobileTapped,
+                                    onSimChosen = viewModel::onSimChosen,
+                                    onDismissSimPicker = viewModel::dismissSimPicker,
+                                    onStatus = viewModel::setStatus,
+                                    onQuality = viewModel::setQuality,
+                                    onRemarks = viewModel::setRemarks,
+                                    onCallbackAt = viewModel::setCallbackAt,
+                                    onSave = { viewModel.saveDisposition { viewModel.backToQueue() } },
+                                    onStartEdit = viewModel::startEditingDetails,
+                                    onCancelEdit = viewModel::cancelEditingDetails,
+                                    onEditName = viewModel::onEditName,
+                                    onEditEmail = viewModel::onEditEmail,
+                                    onEditDob = viewModel::onEditDob,
+                                    onEditCompany = viewModel::onEditCompany,
+                                    onEditIncome = viewModel::onEditIncome,
+                                    onEditAddress = viewModel::onEditAddress,
+                                    onSaveDetails = viewModel::saveDetails
+                                )
+                            }
                         }
+                    }
+
+                    // Shown over Queue/Detail only — Login has nowhere useful
+                    // for the agent to act on it yet, and it re-checks once
+                    // they're in anyway (AppViewModel.init).
+                    val info = state.updateInfo
+                    if (info != null && state.screen != Screen.LOGIN) {
+                        UpdateBanner(
+                            info = info,
+                            downloading = state.updateDownloading,
+                            onUpdate = viewModel::startUpdate,
+                            onDismiss = viewModel::dismissUpdateBanner,
+                            modifier = Modifier.align(Alignment.TopCenter)
+                        )
                     }
                 }
             }

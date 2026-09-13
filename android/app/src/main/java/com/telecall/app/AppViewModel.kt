@@ -14,6 +14,9 @@ import com.telecall.app.data.LeadQuality
 import com.telecall.app.data.LeadRepository
 import com.telecall.app.data.Outcome
 import com.telecall.app.data.Profile
+import com.telecall.app.update.UpdateChecker
+import com.telecall.app.update.UpdateInfo
+import com.telecall.app.update.UpdateInstaller
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -56,7 +59,11 @@ data class UiState(
     val editDob: String = "",             // as typed: DD-MM-YYYY
     val editCompany: String = "",
     val editIncome: String = "",
-    val editAddress: String = ""
+    val editAddress: String = "",
+
+    // --- app update, checked once per cold launch ---
+    val updateInfo: UpdateInfo? = null,
+    val updateDownloading: Boolean = false
 ) {
     /** The Lead sub-dropdown is only required when the status is LEAD. */
     val needsQuality: Boolean get() = formStatus == CallStatus.LEAD
@@ -75,6 +82,8 @@ class AppViewModel(
 ) : AndroidViewModel(app) {
 
     private val simManager = SimManager(app.applicationContext)
+    private val updateChecker = UpdateChecker()
+    private val updateInstaller = UpdateInstaller(app.applicationContext)
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -94,7 +103,37 @@ class AppViewModel(
                 runCatching { repo.logSmsOutcome(leadId, mobile, outcome) }
             }
         }
+        checkForUpdate()
     }
+
+    /**
+     * Once per cold launch, before or after sign-in — the banner it feeds
+     * is shown over every screen, see MainActivity. A failed or negative
+     * check just leaves [UiState.updateInfo] null; there is no error state
+     * here on purpose, an unreachable GitHub must never look like an app
+     * problem to the agent.
+     */
+    private fun checkForUpdate() {
+        viewModelScope.launch {
+            val info = updateChecker.checkForUpdate()
+            if (info != null) _state.update { it.copy(updateInfo = info) }
+        }
+    }
+
+    /**
+     * Downloads the release APK and hands it to the system installer.
+     * updateDownloading only disables the banner's button for this session
+     * — it does not track real download progress, which already has its
+     * own system notification via DownloadManager.
+     */
+    fun startUpdate() {
+        val info = _state.value.updateInfo ?: return
+        _state.update { it.copy(updateDownloading = true) }
+        updateInstaller.downloadAndInstall(info)
+    }
+
+    /** Hides the banner for the rest of this app session, not permanently. */
+    fun dismissUpdateBanner() = _state.update { it.copy(updateInfo = null) }
 
     // -----------------------------------------------------------------
     // Auth

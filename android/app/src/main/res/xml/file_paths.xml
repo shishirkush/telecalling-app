@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Exposes only the update-APK download location to FileProvider —
+     matches UpdateInstaller's setDestinationInExternalFilesDir call. -->
+<paths>
+    <external-files-path name="updates" path="Download/" />
+</paths>
