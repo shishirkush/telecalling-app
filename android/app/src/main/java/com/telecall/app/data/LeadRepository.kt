@@ -152,4 +152,22 @@ class LeadRepository(private val client: SupabaseClient) {
     suspend fun logLeadView(leadId: Long) {
         client.rpc("log_lead_view", buildJsonObject { put("p_lead_id", leadId) }.toString())
     }
+
+    /**
+     * Reports what actually happened when the Apply Card SMS was sent.
+     * Agents work remotely — this is the only way to see a real-device
+     * failure (denied permission, no service, radio off) without ever
+     * touching their phone. Fire-and-forget, same as [logLeadView]: this
+     * observes the SMS/call flow, it must never be able to affect it.
+     */
+    suspend fun logSmsOutcome(leadId: Long?, mobile: String, outcome: String) {
+        client.rpc(
+            "log_sms_outcome",
+            buildJsonObject {
+                put("p_lead_id", leadId)
+                put("p_mobile", mobile)
+                put("p_outcome", outcome)
+            }.toString()
+        )
+    }
 }

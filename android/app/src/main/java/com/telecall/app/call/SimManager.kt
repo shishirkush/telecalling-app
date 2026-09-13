@@ -50,6 +50,19 @@ data class SimOption(
  */
 class SimManager(private val context: Context) {
 
+    /**
+     * Fired with (leadId, mobile, outcome) whenever [sendApplyCardSms]
+     * reaches a final result — including the early-return cases
+     * (permission denied, blank number) and the async carrier result
+     * below. Agents work remotely and their phones can never be plugged
+     * in for `adb logcat`, so [AppViewModel] sets this once to forward
+     * every outcome to `log_sms_outcome()` (backend/14_sms_delivery_log.sql)
+     * — the only way to see a real-device failure without holding the
+     * device. Deliberately just a callback, not a repo/network dependency
+     * here: SimManager stays telephony-only.
+     */
+    var onSmsOutcome: ((leadId: Long?, mobile: String, outcome: String) -> Unit)? = null
+
     // sendTextMessage() with a null sentIntent hands the text off to the
     // radio and returns immediately — a real carrier-level failure (no
     // service, radio off, blocked) never throws and never shows up in
@@ -59,16 +72,18 @@ class SimManager(private val context: Context) {
     // have caught a real-device carrier failure.
     private val smsResultReceiver = object : BroadcastReceiver() {
         override fun onReceive(ctx: Context, intent: Intent) {
-            val number = intent.getStringExtra(EXTRA_NUMBER)
+            val number = intent.getStringExtra(EXTRA_NUMBER) ?: return
+            val leadId = intent.getLongExtra(EXTRA_LEAD_ID, -1L).takeIf { it >= 0 }
             val outcome = when (resultCode) {
                 Activity.RESULT_OK -> "sent"
-                SmsManager.RESULT_ERROR_GENERIC_FAILURE -> "generic failure"
-                SmsManager.RESULT_ERROR_NO_SERVICE -> "no service"
-                SmsManager.RESULT_ERROR_NULL_PDU -> "null pdu"
-                SmsManager.RESULT_ERROR_RADIO_OFF -> "radio off"
-                else -> "unknown code $resultCode"
+                SmsManager.RESULT_ERROR_GENERIC_FAILURE -> "generic_failure"
+                SmsManager.RESULT_ERROR_NO_SERVICE -> "no_service"
+                SmsManager.RESULT_ERROR_NULL_PDU -> "null_pdu"
+                SmsManager.RESULT_ERROR_RADIO_OFF -> "radio_off"
+                else -> "unknown_code_$resultCode"
             }
             Log.i(TAG, "Apply Card SMS to $number: $outcome")
+            onSmsOutcome?.invoke(leadId, number, outcome)
         }
     }
 
@@ -195,13 +210,17 @@ class SimManager(private val context: Context) {
      * shows up in the phone's own Sent folder like any other text, same as
      * every other message this device sends.
      */
-    fun sendApplyCardSms(number: String, sim: SimOption?) {
+    fun sendApplyCardSms(number: String, sim: SimOption?, leadId: Long?) {
         if (!hasSmsPermission()) {
             Log.w(TAG, "sendApplyCardSms: SEND_SMS not granted, skipping")
+            onSmsOutcome?.invoke(leadId, number, "permission_denied")
             return
         }
         val cleaned = sanitize(number)
-        if (cleaned.isBlank()) return
+        if (cleaned.isBlank()) {
+            onSmsOutcome?.invoke(leadId, number, "invalid_number")
+            return
+        }
 
         try {
             // context.getSystemService(SmsManager::class.java) is the
@@ -216,18 +235,22 @@ class SimManager(private val context: Context) {
             } else {
                 default
             }
-            // sentIntent only feeds smsResultReceiver's logcat line above —
-            // it never touches app state or the call result. See its kdoc
-            // for why this is worth having despite the fire-and-forget design.
+            // sentIntent carries leadId through to smsResultReceiver, which
+            // logs it and forwards it via onSmsOutcome — see that receiver's
+            // kdoc for why this is worth having despite the fire-and-forget
+            // design. It never touches app state or the call result.
             val sentIntent = PendingIntent.getBroadcast(
                 context,
                 cleaned.hashCode(),
-                Intent(SMS_SENT_ACTION).setPackage(context.packageName).putExtra(EXTRA_NUMBER, cleaned),
+                Intent(SMS_SENT_ACTION).setPackage(context.packageName)
+                    .putExtra(EXTRA_NUMBER, cleaned)
+                    .putExtra(EXTRA_LEAD_ID, leadId ?: -1L),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
             manager.sendTextMessage(cleaned, null, APPLY_CARD_SMS_TEXT, sentIntent, null)
         } catch (e: Exception) {
             Log.e(TAG, "sendApplyCardSms failed for $cleaned", e)
+            onSmsOutcome?.invoke(leadId, number, "exception: ${e.message}")
         }
     }
 
@@ -247,5 +270,6 @@ class SimManager(private val context: Context) {
         private const val TAG = "SimManager"
         private const val SMS_SENT_ACTION = "com.telecall.app.APPLY_CARD_SMS_SENT"
         private const val EXTRA_NUMBER = "number"
+        private const val EXTRA_LEAD_ID = "lead_id"
     }
 }

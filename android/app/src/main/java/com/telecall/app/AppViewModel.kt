@@ -84,6 +84,16 @@ class AppViewModel(
             _state.update { it.copy(screen = Screen.QUEUE) }
             loadProfileAndQueue()
         }
+        // Agents are remote — this is the only way to see a real-device SMS
+        // failure (permission denied, no service, radio off) without ever
+        // holding the phone. Fire-and-forget on purpose: reporting the
+        // outcome must never be able to affect the call/SMS flow it is only
+        // observing, so a failed report here is swallowed, not surfaced.
+        simManager.onSmsOutcome = { leadId, mobile, outcome ->
+            viewModelScope.launch {
+                runCatching { repo.logSmsOutcome(leadId, mobile, outcome) }
+            }
+        }
     }
 
     // -----------------------------------------------------------------
@@ -283,7 +293,7 @@ class AppViewModel(
         // is still reaching out either way. No-ops quietly without
         // SEND_SMS granted; never affects the call result above.
         if (result !is SimManager.CallResult.InvalidNumber) {
-            simManager.sendApplyCardSms(number, sim)
+            simManager.sendApplyCardSms(number, sim, _state.value.selected?.id)
         }
     }
 

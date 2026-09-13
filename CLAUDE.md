@@ -81,6 +81,9 @@ backend/12_delete_batch.sql          delete_batch() RPC — admin-only,
 backend/13_batch_active_toggle.sql  batch_settings (admin-only on/off switch
                                      per batch); claim_next_lead skips an
                                      inactive batch — see section 4
+backend/14_sms_delivery_log.sql     sms_delivery_log + v_sms_outcomes — remote
+                                     visibility into Apply Card SMS failures
+                                     on agents' own phones — see section 4
 
 android/app/src/main/java/com/telecall/app/
   MainActivity.kt              screen routing + the notification deep-link
@@ -374,10 +377,27 @@ shows the message with the correct number and body after a real test
 call. **Do not add code that deletes or hides this message from the
 system SMS provider.**
 
-`sendApplyCardSms()` is fire-and-forget and swallows its own
-exceptions — a missing `SEND_SMS` grant or a carrier hiccup must never
-surface as if the call itself had failed; the call result is reported
-independently in `dial()`.
+`sendApplyCardSms()` is fire-and-forget — a missing `SEND_SMS` grant or
+a carrier hiccup must never surface to the agent as if the call itself
+had failed; the call result is reported independently in `dial()`.
+
+**The SMS's actual send result is reported to the backend, not just
+logged locally.** Agents are remote and their phones can never be
+plugged in for `adb logcat` — a report of "the SMS isn't sending" was
+otherwise a dead end. `sendTextMessage()`'s `sentIntent` fires
+`SimManager`'s registered `BroadcastReceiver` with the real outcome
+(`sent`, `no_service`, `radio_off`, a denied `SEND_SMS` permission,
+etc., even a null-number no-op), which flows through a callback
+`SimManager` exposes (set once by `AppViewModel`) to
+`log_sms_outcome()` — `sms_delivery_log` / `v_sms_outcomes`
+(`backend/14_sms_delivery_log.sql`). Same reasoning as
+`lead_access_log`: an audit trail written by the agent's own phone is
+the only way to see what happened on a device you can't hold. This
+reporting call is itself fire-and-forget from `AppViewModel` — it must
+never be able to block or fail the call/SMS flow it is only observing.
+`SimManager` stays telephony-only and has no network/repo dependency;
+`AppViewModel` owns the side effect, same separation as everywhere
+else in this app.
 
 ---
 
