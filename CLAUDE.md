@@ -84,6 +84,8 @@ backend/13_batch_active_toggle.sql  batch_settings (admin-only on/off switch
 backend/14_sms_delivery_log.sql     sms_delivery_log + v_sms_outcomes — remote
                                      visibility into Apply Card SMS failures
                                      on agents' own phones — see section 4
+backend/15_app_version_report.sql   profiles.app_version(_reported_at),
+                                     v_app_versions — see section 4
 
 android/app/src/main/java/com/telecall/app/
   MainActivity.kt              screen routing + the notification deep-link
@@ -451,6 +453,22 @@ real latest GitHub release via `DownloadManager`, and handed off to the
 system installer, which recognized it as a legitimate update to the
 same signed app (not a fresh/unknown install) before the version-code
 issue above was found and fixed.
+
+**The app reports its own version to the backend — "which agents have
+updated" should never again be answered by inference.** Before
+`backend/15_app_version_report.sql`, this question got asked three
+times and answered three different indirect ways (recent
+`call_dispositions` activity, presence of rows in `sms_delivery_log`),
+each of which could only say "on some build newer than X," never the
+exact version, and said nothing about an agent who simply hadn't
+called anyone recently. `report_app_version()` is called once per
+sign-in-backed launch (`AppViewModel.loadProfileAndQueue()`, right
+alongside `update.UpdateChecker`'s own check) and writes
+`BuildConfig.VERSION_NAME` straight to `profiles.app_version` — a
+direct, exact, per-agent answer via `v_app_versions`. Fire-and-forget
+in its own coroutine, same as `logSmsOutcome`/`logLeadView`: telemetry
+must never be able to slow down or fail the profile/queue load it
+rides alongside.
 
 ---
 

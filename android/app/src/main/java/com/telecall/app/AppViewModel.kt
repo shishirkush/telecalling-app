@@ -173,6 +173,14 @@ class AppViewModel(
             }
             refreshQueue()
         }
+        // Once per sign-in-backed launch (cold start already signed in, or a
+        // fresh sign-in) — see report_app_version() in
+        // backend/15_app_version_report.sql for why this exists. A separate
+        // coroutine, not sequenced with the profile/queue load above: this
+        // is telemetry, it must never be able to slow down or fail that.
+        viewModelScope.launch {
+            runCatching { repo.reportAppVersion(BuildConfig.VERSION_NAME) }
+        }
     }
 
     fun refreshQueue() {

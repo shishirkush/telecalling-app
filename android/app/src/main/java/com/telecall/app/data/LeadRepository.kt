@@ -170,4 +170,14 @@ class LeadRepository(private val client: SupabaseClient) {
             }.toString()
         )
     }
+
+    /**
+     * Once per cold launch (alongside update.UpdateChecker's own check),
+     * so "which agents are on which build" is a direct query instead of
+     * inferred from unrelated activity. Fire-and-forget, same reasoning
+     * as [logLeadView] and [logSmsOutcome].
+     */
+    suspend fun reportAppVersion(version: String) {
+        client.rpc("report_app_version", buildJsonObject { put("p_version", version) }.toString())
+    }
 }
