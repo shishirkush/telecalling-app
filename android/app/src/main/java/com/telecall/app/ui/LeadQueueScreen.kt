@@ -6,10 +6,8 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,8 +16,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
@@ -171,12 +167,37 @@ fun LeadQueueScreen(
                         )
                     }
                     else -> {
-                        LazyColumn(
-                            contentPadding = PaddingValues(12.dp, 8.dp, 12.dp, 88.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        // Deliberately one card, not a list: visibleLeads is
+                        // already server-ordered by priority (due callbacks
+                        // first, then least-recently-touched — see
+                        // claim_next_lead's ORDER BY), so .first() is the
+                        // right lead to work next. Showing the whole assigned
+                        // batch at once meant every customer's name and
+                        // mobile number was visible — and copyable — in a
+                        // single glance; this shows only the one the agent
+                        // is about to call. Saving its disposition refreshes
+                        // the queue and reveals the next one in its place.
+                        val currentLead = visibleLeads.first()
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(12.dp, 8.dp, 12.dp, 88.dp)
                         ) {
-                            items(visibleLeads, key = { it.id }) { lead ->
-                                LeadCard(lead = lead, onClick = { onOpenLead(lead) })
+                            Text(
+                                text = if (selectedTab == 1) "Next callback due" else "Your next lead",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            LeadCard(lead = currentLead, onClick = { onOpenLead(currentLead) })
+                            if (visibleLeads.size > 1) {
+                                Spacer(Modifier.height(12.dp))
+                                Text(
+                                    text = "${visibleLeads.size - 1} more waiting — " +
+                                        "save this one to see the next.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                         }
                     }

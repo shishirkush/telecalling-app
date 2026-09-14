@@ -96,6 +96,8 @@ android/app/src/main/java/com/telecall/app/
   MainActivity.kt              screen routing + the notification deep-link
                                      (EXTRA_OPEN_LEAD_ID, singleTask launch mode)
   AppViewModel.kt              ALL UI state + actions live here
+  DeviceSupport.kt              blocks a device with no telephony radio —
+                                     checked before sign-in — see section 4
   TelecallApplication.kt       builds the repository singleton, creates the
                                      "callbacks" notification channel
   data/Models.kt               Lead, CallStatus, LeadQuality, Outcome<T>
@@ -113,6 +115,8 @@ android/app/src/main/java/com/telecall/app/
   ui/LeadDetailScreen.kt       record view, call button, SIM dialog, outcome form
   ui/SearchScreen.kt           whole-database mobile/PAN lookup, read-only —
                                      see section 4
+  ui/UnsupportedDeviceScreen.kt  the hard stop for DeviceSupport.kt — no
+                                     bypass, not even an already-signed-in session
   ui/Format.kt                 currency/date/mask helpers  ← masking lives here
   ui/UpdateBanner.kt           shown over Queue/Detail when an update exists
   ui/theme/Theme.kt
@@ -563,6 +567,50 @@ than as a separate call. The dashboard's App versions table flags a
 `genymotion`/`generic`/`sdk_gphone` in red — that list is Android
 emulator/player signatures, not an exhaustive detector, and exists to
 make the answer visible at a glance rather than to gate anything.
+
+**`DeviceSupport.kt` turns that visibility into an actual hard block —
+a device with no telephony radio cannot sign in at all.** Checked first
+in `AppViewModel.init`, before sign-in restore, before the update
+check, before `SimManager`'s SMS-outcome wiring — a blocked device does
+none of that, it only ever sees `Screen.UNSUPPORTED_DEVICE`
+(`ui/UnsupportedDeviceScreen.kt`), no bypass, even with an already
+signed-in session already persisted on disk (verified: an already
+logged-in test session hit the block screen immediately, not the
+queue). AndroidManifest's `<uses-feature android:name=
+"android.hardware.telephony" required="true">` looks like it should
+already do this and does not — that attribute is Play Store install
+filtering only, never checked by the OS installer for a sideloaded
+APK, which is exactly how this app ships. `PackageManager
+.hasSystemFeature(FEATURE_TELEPHONY)` is the real, only enforcement;
+the manufacturer/model string list is a second signal in case a player
+ever fakes that feature. Verified on the emulator by temporarily
+adding its own model string to the blocklist (it does have real
+telephony normally) — confirmed the block screen render and confirmed
+nothing else in the app is reachable past it — then reverted.
+
+**Known, accepted consequence of shipping this: any agent currently
+working from a desktop Android player loses access entirely, the
+moment they update.** Not a bug — it's what "block desktop installs"
+means — but real leads may be sitting assigned to that agent's account
+when it happens, inaccessible to them until they move to an actual
+phone. Worth confirming with anyone on a suspected desktop setup
+before pushing this update to them, not after.
+
+**The Queue screen shows one lead at a time, not the whole assigned
+batch — `ui/LeadQueueScreen.kt`'s `visibleLeads.first()`, not a
+`LazyColumn` of all of them.** Until this, every currently-assigned
+lead's name and mobile number rendered on screen simultaneously — a
+supervisor's concern, not a bug report: seeing (and so screenshotting,
+copying, photographing) many customers' contact details in one glance
+is a materially bigger exposure than seeing one at a time, even though
+both are already scoped by RLS to just that agent's own leads. Ordering
+is unchanged — `visibleLeads` is still the server's priority order
+(due callbacks first, then least-recently-touched), so `.first()` is
+genuinely the next lead to work, not an arbitrary one. Saving a
+disposition still refreshes the queue and reveals the next one in its
+place; a plain count ("N more waiting") is the only hint given about
+the rest of the batch — no names, no numbers. Applies to both the
+Queue and CallBacks tabs identically.
 
 ---
 

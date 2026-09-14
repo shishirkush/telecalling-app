@@ -16,6 +16,7 @@ import com.telecall.app.ui.LeadDetailScreen
 import com.telecall.app.ui.LeadQueueScreen
 import com.telecall.app.ui.LoginScreen
 import com.telecall.app.ui.SearchScreen
+import com.telecall.app.ui.UnsupportedDeviceScreen
 import com.telecall.app.ui.UpdateBanner
 import com.telecall.app.ui.theme.TelecallTheme
 
@@ -38,6 +39,8 @@ class MainActivity : ComponentActivity() {
 
                 Box(Modifier.fillMaxSize()) {
                     when (state.screen) {
+                        Screen.UNSUPPORTED_DEVICE -> UnsupportedDeviceScreen()
+
                         Screen.LOGIN -> LoginScreen(
                             state = state,
                             onSignIn = viewModel::signIn
@@ -95,9 +98,15 @@ class MainActivity : ComponentActivity() {
 
                     // Shown over Queue/Detail only — Login has nowhere useful
                     // for the agent to act on it yet, and it re-checks once
-                    // they're in anyway (AppViewModel.init).
+                    // they're in anyway (AppViewModel.init). Never set at all
+                    // on Screen.UNSUPPORTED_DEVICE since checkForUpdate() is
+                    // one of the things that path skips, but excluded here
+                    // too for clarity — an unsupported device gets nothing
+                    // layered on top of its block screen.
                     val info = state.updateInfo
-                    if (info != null && state.screen != Screen.LOGIN) {
+                    if (info != null && state.screen != Screen.LOGIN &&
+                        state.screen != Screen.UNSUPPORTED_DEVICE
+                    ) {
                         UpdateBanner(
                             info = info,
                             downloading = state.updateDownloading,
