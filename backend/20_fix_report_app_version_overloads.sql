@@ -1,0 +1,43 @@
+-- =====================================================================
+--  MIGRATION 20 — collapse report_app_version's accidental overloads
+--  Run this in: Supabase Dashboard → SQL Editor → New query → Run
+--  Safe to re-run.
+-- =====================================================================
+--
+-- CREATE OR REPLACE FUNCTION only replaces an existing function when its
+-- argument TYPE LIST is unchanged; Postgres identifies a function by
+-- (name, arg types), and a default value does not make two different
+-- arities the same signature. So report_app_version(p_version) from
+-- migration 15, report_app_version(p_version, p_device_model) from
+-- migration 17, and report_app_version(p_version, p_device_model,
+-- p_device_id) from migration 18 were never one function being
+-- progressively extended — they are three separate overloads that have
+-- all been sitting in the schema since migration 17 shipped.
+--
+-- This was silently broken the whole time for any caller that didn't
+-- send the exact current arity: PostgREST/PostgreSQL cannot pick a
+-- "best" overload when the call omits an optional trailing parameter,
+-- because more than one overload matches equally well. Confirmed
+-- directly against the live database — a call with only
+-- {p_version, p_device_model} (no p_device_id) fails with
+--
+--   PGRST203: Could not choose the best candidate function between:
+--   public.report_app_version(p_version => text, p_device_model => text),
+--   public.report_app_version(p_version => text, p_device_model => text,
+--                              p_device_id => text)
+--
+-- The Android app never hit this because every build since v1.8.2 has
+-- sent all the parameters that existed at the time, always matching the
+-- newest overload exactly by arity — but the new web app
+-- (webapp/index.html) deliberately omits p_device_id (there is no
+-- ANDROID_ID equivalent on the web), which is exactly the call shape
+-- that was ambiguous. Dropping the two stale overloads leaves one
+-- canonical function and fixes this for every current and future caller,
+-- not just the web app's specific call shape.
+
+drop function if exists public.report_app_version(text);
+drop function if exists public.report_app_version(text, text);
+
+-- The 3-argument version (migration 18) is untouched — still the one
+-- canonical report_app_version, now unambiguous for a 1-, 2- or 3-
+-- argument call since it's the only overload left.

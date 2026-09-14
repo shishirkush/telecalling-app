@@ -127,6 +127,9 @@ android/app/src/main/java/com/telecall/app/
 
 dashboard/index.html           entire dashboard, one file, no build step.
                                      "Create agent" form calls the Edge Function below
+webapp/index.html               mobile-web agent app for iPhone agents — separate repo
+                                     (telecalling-webapp), same one-file/no-build pattern,
+                                     same Supabase project/RLS/RPCs as the Android app
 supabase/functions/create-agent/index.ts  service_role lives ONLY here —
                                      the one place other than direct SQL access
                                      that key is allowed to exist
@@ -700,6 +703,52 @@ admin session (deactivate correctly flipped `active` to false and
 released qa_test's 3 open leads; reactivate correctly restored `active`
 without re-assigning them) and a non-admin agent session (kishan was
 correctly refused with `not permitted`).
+
+**`webapp/` (separate repo: `telecalling-webapp`, deployed to
+`shishirkush.github.io/telecalling-webapp/`) is a mobile-web agent app
+for agents on iPhone, who can't install the Android APK at all.** One
+static file, same zero-build pattern as `dashboard/`, hitting the exact
+same Supabase project/RLS/RPCs as the Android app — no backend schema
+changes needed for it specifically. Login, Queue (one-lead-at-a-time),
+CallBacks (full list), lead detail with call status/quality/callback
+scheduling, edit details, and whole-database search all mirror the
+Android app's behavior field-for-field, including hiding the raw
+mobile number behind a "Call" button/banner. Reports itself to
+`v_app_versions` as `app_version = "1.9.4-web"`,
+`device_model = "Web · <OS> (<browser>)"` — deliberately distinct from
+a real APK's version string so the dashboard can always tell the two
+channels apart. Three things a browser genuinely cannot do, unlike
+Android's `SimManager.kt`: no SIM picker (`tel:` just uses the phone's
+default), no silently-sent Apply Card SMS (opens the Messages app
+pre-filled instead — the agent still taps Send — logged as its own
+`web_compose_opened` outcome so it's never confused with a confirmed
+send), and no callback-reminder push notifications (would need a
+service worker + push subscription, left out of this pass). Verified
+live end-to-end against production (qa_test account): login, claim,
+full disposition save with a callback quick-chip, the CallBacks list
+picking it up with the right attempt count, and whole-database search
+with its result-detail modal.
+
+**Building the web app surfaced a real, pre-existing backend bug,
+fixed in migration 20**: `report_app_version` had silently accumulated
+THREE separate overloads (1-, 2-, and 3-argument) across migrations
+15/17/18, because `CREATE OR REPLACE FUNCTION` only replaces a
+function when its argument *type list* is unchanged — adding a new
+trailing parameter, even with a default, registers as a new overload
+rather than replacing the old one. This was live and broken the whole
+time for any caller that didn't send the current exact argument count;
+it never surfaced because the Android app always sent every parameter
+that existed as of its own build. The web app's report call
+deliberately omits `p_device_id` (there's no `ANDROID_ID` equivalent
+on the web), which is exactly the shape that hit the ambiguity —
+confirmed directly against the live database:
+`PGRST203: Could not choose the best candidate function...`. Fixed by
+dropping the two stale overloads, leaving one canonical
+`report_app_version(p_version, p_device_model, p_device_id)`. Worth
+remembering for any future function whose signature grows over
+migrations: extending a security-definer RPC's parameter list needs an
+explicit `drop function ... (old signature);` alongside the
+`create or replace`, not just the replace on its own.
 
 ---
 
