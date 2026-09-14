@@ -223,6 +223,23 @@ class LeadRepository(private val client: SupabaseClient) {
      * once per app install and stable across relaunches — see
      * backend/18_android_id_report.sql.
      */
+    /**
+     * Records a sign-in or sign-out for the dashboard's Login Activity
+     * page. Retried (see [retryRpc]) — there is no UI to retry from if
+     * either call fails silently, and losing a logout is worse than a
+     * few extra seconds on the sign-out tap, so this is awaited rather
+     * than truly fire-and-forget on that path (see AppViewModel.signOut).
+     */
+    suspend fun logLoginEvent(event: String, platform: String = "android") {
+        retryRpc(
+            "log_login_event",
+            buildJsonObject {
+                put("p_event", event)
+                put("p_platform", platform)
+            }.toString()
+        )
+    }
+
     suspend fun reportAppVersion(version: String, deviceModel: String, deviceId: String?) {
         retryRpc(
             "report_app_version",

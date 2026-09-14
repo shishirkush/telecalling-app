@@ -750,6 +750,48 @@ migrations: extending a security-definer RPC's parameter list needs an
 explicit `drop function ... (old signature);` alongside the
 `create or replace`, not just the replace on its own.
 
+**Migration 21 adds calling hours (9 AM–7 PM IST) and a login/logout
+log, both requested together and genuinely connected: the log is partly
+what lets an admin verify the hours gate is actually holding.**
+
+`claim_next_lead()` now refuses outside `09:00`–`19:00` IST
+(`(now() at time zone 'Asia/Kolkata')::time`, checked server-side since
+a phone's own clock can't be trusted — same reasoning as every other
+check in this schema). Deliberately scoped to *claiming* only — an
+agent already on a call at 7:01 PM can still save that disposition;
+this stops new leads being handed out outside the window, not work
+already in hand. India has had one fixed UTC+5:30 offset with no DST
+since 1945, so `Asia/Kolkata` needs no seasonal handling.
+
+`login_log` + `log_login_event(p_event, p_platform)` record a sign-in
+or sign-out from either client. Both Android (`AppViewModel.signIn` /
+`.signOut`) and the web app call it — sign-out logs *before* clearing
+the session, since there's no valid token left to authenticate the
+call afterward; sign-in only on a fresh credential submission, not on
+a cold-start that found an already-valid session, so reopening the app
+never gets recorded as a new login. This cannot capture every real
+logout — an app force-killed, a browser tab just closed — there is no
+heartbeat/keep-alive system here, so a login row with no matching
+logout later is "we don't know," not "they were signed in the whole
+time." Read access scoped by `manages_agent()`, same as the rest of
+reporting (recent calls, callbacks, agent performance) — a manager
+sees it for their assigned agents, admin sees everyone; not tucked
+behind admin-only like App versions/DB stats.
+
+Surfaced on the dashboard's new Login Activity page (separate page,
+same client-side swap pattern as Archived Agents, reached from the
+main header rather than gated in the admin section), reusing the
+existing Today/7 days/30 days/All time filter. Any login or logout
+outside 9 AM–7 PM IST is flagged red — the same window the backend now
+enforces for claiming, so a supervisor can see at a glance whether
+anyone was even active outside calling hours, not just whether they
+successfully claimed a lead then. Verified directly against the live
+database (real time was ~10:44 PM IST while testing): `claim_next_lead`
+correctly raised `P0001: Leads can only be claimed between 9:00 AM and
+7:00 PM IST`, and `log_login_event` correctly wrote both a login and a
+logout row for the calling account, readable back through
+`v_login_log`.
+
 ---
 
 ## 5. Verification status — READ THIS

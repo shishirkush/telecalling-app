@@ -167,14 +167,26 @@ class AppViewModel(
                 is Outcome.Ok -> {
                     _state.update { it.copy(loading = false, screen = Screen.QUEUE) }
                     loadProfileAndQueue()
+                    // Only a fresh credential sign-in, not cold-start-while-
+                    // already-signed-in (loadProfileAndQueue runs on both) —
+                    // otherwise every relaunch would look like a new login.
+                    viewModelScope.launch { runCatching { repo.logLoginEvent("login") } }
                 }
             }
         }
     }
 
     fun signOut() {
-        repo.signOut()
-        _state.value = UiState(screen = Screen.LOGIN)
+        // Logged before repo.signOut() clears the session — there is no
+        // valid token left to authenticate this call afterward. Awaited
+        // (with its own retry, see LeadRepository.logLoginEvent) rather
+        // than fire-and-forget: losing a logout row is worse than the
+        // sign-out tap taking a moment longer.
+        viewModelScope.launch {
+            runCatching { repo.logLoginEvent("logout") }
+            repo.signOut()
+            _state.value = UiState(screen = Screen.LOGIN)
+        }
     }
 
     // -----------------------------------------------------------------
