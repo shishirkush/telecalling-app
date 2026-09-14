@@ -626,6 +626,18 @@ leads dispositioned as Call Later both render as an unbroken
 tab for a third, freshly-claimed lead still shows only "Your next
 lead" as a single card.
 
+**`LeadCard`'s mobile-number `Text` was replaced with a "Call" button
+(v1.9.2)** — same PII-minimization reasoning as the one-at-a-time
+change above, applied one level deeper: even a single visible lead
+card was still rendering the raw digits in plain text on both the
+Queue and CallBacks tabs. The button doesn't dial anything itself —
+tapping it (or the rest of the card) still just opens
+`LeadDetailScreen`, where the actual number and the real tap-to-call
+banner already live; this only changes what's visible at the list
+level. Verified on-device: neither tab shows a raw number anymore, and
+tapping "Call" opens the correct lead's detail screen with its real
+number intact.
+
 ---
 
 ## 5. Verification status — READ THIS

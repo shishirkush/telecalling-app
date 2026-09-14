@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
@@ -308,12 +309,34 @@ private fun LeadCard(lead: Lead, onClick: () -> Unit) {
                     )
                 }
                 Spacer(Modifier.height(6.dp))
-                Text(
-                    text = formatMobile(lead.mobile),
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.primary
-                )
+                // The raw mobile number used to render here as plain text —
+                // same "many customers' details visible in one glance"
+                // exposure as the full queue list this card replaced. Opening
+                // the lead (via this same onClick) still shows the real
+                // number and the actual tap-to-call banner in
+                // LeadDetailScreen; this is just the list-level affordance.
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+                        .clickable(onClick = onClick)
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                ) {
+                    Icon(
+                        Icons.Filled.Call,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        text = "Call",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
 
                 if (lead.callbackAt != null) {
                     val overdue = isPast(lead.callbackAt)
