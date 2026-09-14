@@ -670,6 +670,37 @@ permission needed to read it. Verified on-device: qa_test relaunching
 on v1.9.4 reported a `device_id`, immediately visible in
 `v_app_versions`.
 
+**"Delete agent" (backend/19_deactivate_agent.sql) is a deactivate, not
+a real delete, and this is a hard constraint, not a style choice** — a
+true `DELETE` on `auth.users` would cascade to `profiles`, but
+`call_dispositions.agent_id` is `not null references profiles(id)`
+with no `ON DELETE` clause, so Postgres refuses to remove a profile
+that has ever logged a single call. That's also exactly the row you'd
+want to keep: it's the audit trail every "Recent calls" / "Agent
+performance" row on the dashboard depends on. `profiles.active` already
+existed and was already load-bearing everywhere (`claim_next_lead`,
+`save_disposition`, `search_lead`, ... all self-check `auth.uid() and
+active`) — it just had no button, and column-level grants block a
+direct client PATCH to it since migration 05, so it needed a
+security-definer RPC. `set_agent_active(p_agent_id, p_active)` is one
+function, not a one-way delete — same reasoning as the batch
+active/inactive toggle: an admin misclick or a rehire both need an
+undo. Deactivating also clears `assigned_to`/`locked_by`/`locked_at`
+on the agent's open (`is_closed = false`) leads, so a freshly-claimed
+lead or a pending `CALL_LATER` doesn't sit stuck assigned to someone
+who's gone — `claim_next_lead` already treats `assigned_to is null` as
+claimable and leaves `callback_at` untouched, so a pending callback
+just gets served to whoever's next when it's due. Reactivating does
+not try to hand old leads back — a returning agent just starts
+claiming fresh. Wired into the dashboard's existing App versions table
+(admin-only) as an Active/Inactive toggle button next to each agent,
+reusing `v.id` (added to `v_app_versions`) rather than a new list or
+card. Verified directly against the live DB by simulating both an
+admin session (deactivate correctly flipped `active` to false and
+released qa_test's 3 open leads; reactivate correctly restored `active`
+without re-assigning them) and a non-admin agent session (kishan was
+correctly refused with `not permitted`).
+
 ---
 
 ## 5. Verification status — READ THIS
