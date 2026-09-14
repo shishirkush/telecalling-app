@@ -26,7 +26,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-enum class Screen { LOGIN, QUEUE, DETAIL }
+enum class Screen { LOGIN, QUEUE, DETAIL, SEARCH }
 
 data class UiState(
     val screen: Screen = Screen.LOGIN,
@@ -63,7 +63,14 @@ data class UiState(
 
     // --- app update, checked once per cold launch ---
     val updateInfo: UpdateInfo? = null,
-    val updateDownloading: Boolean = false
+    val updateDownloading: Boolean = false,
+
+    // --- whole-database customer search, by mobile or PAN only ---
+    val searchQuery: String = "",
+    val searching: Boolean = false,
+    val searchError: String? = null,
+    val searchResults: List<Lead> = emptyList(),
+    val searchSelected: Lead? = null   // read-only detail popup
 ) {
     /** The Lead sub-dropdown is only required when the status is LEAD. */
     val needsQuality: Boolean get() = formStatus == CallStatus.LEAD
@@ -288,6 +295,62 @@ class AppViewModel(
         }
         refreshQueue()
     }
+
+    // -----------------------------------------------------------------
+    // Customer search — whole database, mobile or PAN only, read-only.
+    // See backend/16_lead_search.sql: the exact-match requirement, audit
+    // log and rate limit are the real controls; this classifier only
+    // decides which parameter to send so the agent types into one box
+    // instead of picking "mobile" or "PAN" first.
+    // -----------------------------------------------------------------
+
+    private val panPattern = Regex("^[A-Z]{5}[0-9]{4}[A-Z]$")
+
+    fun openSearch() {
+        _state.update {
+            it.copy(
+                screen = Screen.SEARCH,
+                searchQuery = "",
+                searchResults = emptyList(),
+                searchError = null,
+                searchSelected = null
+            )
+        }
+    }
+
+    fun backFromSearch() = _state.update { it.copy(screen = Screen.QUEUE) }
+
+    fun setSearchQuery(q: String) = _state.update { it.copy(searchQuery = q, searchError = null) }
+
+    fun performSearch() {
+        val raw = _state.value.searchQuery.trim()
+        val compact = raw.filter { it != ' ' && it != '-' }
+        val digitsOnly = raw.filter { it.isDigit() }
+        val looksLikeMobile = compact.isNotEmpty() &&
+            compact.all { it.isDigit() || it == '+' } &&
+            digitsOnly.length >= 10
+
+        val mobile = if (looksLikeMobile) digitsOnly.takeLast(10) else null
+        val pan = if (!looksLikeMobile) compact.uppercase().takeIf { panPattern.matches(it) } else null
+
+        if (mobile == null && pan == null) {
+            _state.update {
+                it.copy(searchError = "Enter a valid 10-digit mobile number or PAN, e.g. ABCDE1234F.")
+            }
+            return
+        }
+
+        _state.update { it.copy(searching = true, searchError = null, searchResults = emptyList()) }
+        viewModelScope.launch {
+            when (val r = repo.searchLeads(mobile = mobile, pan = pan)) {
+                is Outcome.Ok -> _state.update { it.copy(searching = false, searchResults = r.value) }
+                is Outcome.Err -> _state.update { it.copy(searching = false, searchError = r.message) }
+            }
+        }
+    }
+
+    fun selectSearchResult(lead: Lead) = _state.update { it.copy(searchSelected = lead) }
+    fun dismissSearchResult() = _state.update { it.copy(searchSelected = null) }
 
     // -----------------------------------------------------------------
     // Calling

@@ -26,6 +26,7 @@ import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -69,7 +70,8 @@ fun LeadQueueScreen(
     onOpenLead: (Lead) -> Unit,
     onClaimNext: () -> Unit,
     onRefresh: () -> Unit,
-    onSignOut: () -> Unit
+    onSignOut: () -> Unit,
+    onSearch: () -> Unit
 ) {
     // Split, not two separate queries: myQueue() already returns every open
     // assigned lead in one call, so this is just "which half are we looking
@@ -100,6 +102,9 @@ fun LeadQueueScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = onSearch) {
+                        Icon(Icons.Filled.Search, contentDescription = "Search customer")
+                    }
                     IconButton(onClick = onRefresh) {
                         Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
                     }

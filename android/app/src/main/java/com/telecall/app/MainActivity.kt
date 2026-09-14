@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import com.telecall.app.ui.LeadDetailScreen
 import com.telecall.app.ui.LeadQueueScreen
 import com.telecall.app.ui.LoginScreen
+import com.telecall.app.ui.SearchScreen
 import com.telecall.app.ui.UpdateBanner
 import com.telecall.app.ui.theme.TelecallTheme
 
@@ -47,7 +48,17 @@ class MainActivity : ComponentActivity() {
                             onOpenLead = viewModel::openLead,
                             onClaimNext = viewModel::claimNext,
                             onRefresh = viewModel::refreshQueue,
-                            onSignOut = viewModel::signOut
+                            onSignOut = viewModel::signOut,
+                            onSearch = viewModel::openSearch
+                        )
+
+                        Screen.SEARCH -> SearchScreen(
+                            state = state,
+                            onBack = viewModel::backFromSearch,
+                            onQueryChange = viewModel::setSearchQuery,
+                            onSearch = viewModel::performSearch,
+                            onSelectResult = viewModel::selectSearchResult,
+                            onDismissResult = viewModel::dismissSearchResult
                         )
 
                         Screen.DETAIL -> {

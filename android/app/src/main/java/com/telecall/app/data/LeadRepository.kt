@@ -180,4 +180,24 @@ class LeadRepository(private val client: SupabaseClient) {
     suspend fun reportAppVersion(version: String) {
         client.rpc("report_app_version", buildJsonObject { put("p_version", version) }.toString())
     }
+
+    /**
+     * Whole-database customer lookup by exact mobile or PAN, for a
+     * callback whose lead is no longer in this agent's own queue — see
+     * backend/16_lead_search.sql for why this is a narrow, audited,
+     * rate-limited exception rather than a general search. Pass exactly
+     * one of [mobile]/[pan]; the caller (AppViewModel) has already
+     * classified which one the agent typed.
+     */
+    suspend fun searchLeads(mobile: String?, pan: String?): Outcome<List<Lead>> {
+        val body = buildJsonObject {
+            mobile?.let { put("p_mobile", it) }
+            pan?.let { put("p_pan", it) }
+        }
+        return when (val r = client.rpc("search_lead", body.toString())) {
+            is Outcome.Err -> r
+            is Outcome.Ok -> runCatching { json.decodeFromString<List<Lead>>(r.value) }
+                .fold({ Outcome.Ok(it) }, { Outcome.Err("Could not read search results: ${it.message}") })
+        }
+    }
 }

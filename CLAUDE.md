@@ -86,6 +86,9 @@ backend/14_sms_delivery_log.sql     sms_delivery_log + v_sms_outcomes — remote
                                      on agents' own phones — see section 4
 backend/15_app_version_report.sql   profiles.app_version(_reported_at),
                                      v_app_versions — see section 4
+backend/16_lead_search.sql          search_lead() RPC — whole-database
+                                     mobile/PAN lookup, exact-match only,
+                                     audited + rate-limited — see section 4
 
 android/app/src/main/java/com/telecall/app/
   MainActivity.kt              screen routing + the notification deep-link
@@ -106,6 +109,8 @@ android/app/src/main/java/com/telecall/app/
   ui/LeadQueueScreen.kt        Queue / CallBacks / Apply Card tabs, "Next
                                      lead" FAB — see section 4
   ui/LeadDetailScreen.kt       record view, call button, SIM dialog, outcome form
+  ui/SearchScreen.kt           whole-database mobile/PAN lookup, read-only —
+                                     see section 4
   ui/Format.kt                 currency/date/mask helpers  ← masking lives here
   ui/UpdateBanner.kt           shown over Queue/Detail when an update exists
   ui/theme/Theme.kt
@@ -469,6 +474,41 @@ direct, exact, per-agent answer via `v_app_versions`. Fire-and-forget
 in its own coroutine, same as `logSmsOutcome`/`logLeadView`: telemetry
 must never be able to slow down or fail the profile/queue load it
 rides alongside.
+
+**Customer search is a deliberate, narrow, audited exception to "agents
+read only their assigned leads" — not a relaxation of that RLS
+boundary.** The ask was real: a customer calls an agent back, but the
+lead is no longer in that agent's queue (closed weeks ago, or worked by
+a different agent originally), and there was no way to pull up their
+name/address without already knowing which batch it's in. Letting an
+agent browse the whole `leads` table would reopen exactly the
+harvesting risk discussed and rejected earlier in this project's
+history (see "Is it possible for someone with agent access to steal the
+database" in prior conversation — RLS stopping bulk reads was the main
+defense). `search_lead()` (`backend/16_lead_search.sql`) is the
+narrowest version of "yes, but": **exact match only** (a full 10-digit
+mobile or a validly-shaped PAN — no `ILIKE`, no partial/substring
+search, so an agent has to already have the customer's real mobile or
+PAN in hand, which is exactly the stated scenario), every call **logged**
+to `lead_search_log` (masked to the last 4 characters of the query —
+enough to correlate a search with its result, not a second PII copy),
+and **rate-limited to 30/hour per agent** so even a scripted loop with a
+stolen token can only harvest a couple dozen exact-match records an
+hour rather than the whole table. `v_search_activity` gives admin an
+at-a-glance abuse signal — an agent with far more searches than calls,
+or a wall of zero-match searches, reads as guessing rather than looking
+up a real callback.
+
+**Read-only at the client, on purpose — not enforced by the RPC.**
+`search_lead()` doesn't care whether the returned lead is currently
+assigned to the caller; `ui/SearchScreen.kt` simply never renders a
+call button, disposition form, or edit affordance for a search result,
+only a dismissible read-only detail dialog. The actual write guard is
+unchanged and lives where it always has: `save_disposition` /
+`save_lead_details` still require `assigned_to = auth.uid()` (or
+admin). A search result becomes actionable only if the lead is
+separately re-claimed through the normal assignment path — searching
+for it does not assign it.
 
 ---
 
