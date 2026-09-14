@@ -510,6 +510,39 @@ admin). A search result becomes actionable only if the lead is
 separately re-claimed through the normal assignment path — searching
 for it does not assign it.
 
+**The three fire-and-forget telemetry calls (`logSmsOutcome`,
+`reportAppVersion`, `logLeadView`) retry up to 3 times, 2 seconds apart,
+via `LeadRepository.retryRpc()`.** Found by investigating why two real
+agents (Manisha, Kishan) who had confirmed-updated to v1.7.1 and were
+actively calling showed zero rows in `sms_delivery_log` — including one
+call that definitely went through the in-app "tap to call" path (it had
+a `sim_slot` recorded), which should have fired an outcome report no
+matter what happened. A single dropped packet on a real mobile
+connection — never exercised by the emulator's Wi-Fi — was silently
+erasing the signal forever, with no UI to retry from the way a call or
+a save has.
+
+**Caveat discovered while verifying this fix, not yet resolved:**
+placing a call backgrounds the app immediately — the system Phone UI
+takes over the instant `dial()` fires, on every call, unconditionally.
+Testing found that if the app process gets frozen or killed by Android
+while backgrounded during that window (confirmed happening on the
+emulator via `ActivityManager: freezing ... com.telecall.app` in
+logcat, well within the few seconds the retry needs), the in-flight
+retry coroutine dies with it and the report is lost regardless of how
+many attempts were configured — this is a fundamentally different,
+harder problem than a transient network blip, since `viewModelScope`
+offers no persistence across process death. The retry fix is a real,
+verified improvement (confirmed landing successfully end-to-end after
+a real call with the app staying alive) for the "network hiccuped but
+the app kept running" case, which is likely the more common one — but
+it may not be the whole story for Manisha/Kishan specifically if their
+real phones are aggressively freezing/killing backgrounded apps (lower
+RAM, more aggressive OEM battery management than a dev machine's
+emulator). If missing SMS reports persist after this ships, the next
+step is a `WorkManager`-backed persisted retry rather than a bigger
+number here — that survives process death, this doesn't.
+
 ---
 
 ## 5. Verification status — READ THIS

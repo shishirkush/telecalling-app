@@ -1,5 +1,6 @@
 package com.telecall.app.data
 
+import kotlinx.coroutines.delay
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
@@ -8,6 +9,37 @@ import kotlinx.serialization.json.put
 class LeadRepository(private val client: SupabaseClient) {
 
     private val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
+
+    /**
+     * Retries a background telemetry RPC (SMS outcome, app version, lead-view
+     * audit) up to [attempts] times, 2 seconds apart, before giving up.
+     *
+     * These three calls have no UI to retry from if they fail — unlike a
+     * call or a save the agent can just tap again — so a single dropped
+     * packet on a real mobile connection (which the emulator's Wi-Fi never
+     * exercises) used to erase the signal forever. All three RPCs take only
+     * app-supplied parameters, never something the agent typed, so there is
+     * no validation-error case where retrying would be pointless: every
+     * failure here is transient (network, an expired refresh token that a
+     * retry re-attempts anyway) or the agent's session is genuinely gone,
+     * in which case the wasted ~4 seconds in the background is harmless.
+     * Never used for user-facing actions (sign-in, save, search) — those
+     * already get retried by the agent themselves, and blind auto-retry
+     * there would only delay error feedback they need immediately.
+     */
+    private suspend fun retryRpc(name: String, body: String, attempts: Int = 3): Outcome<String> {
+        var last: Outcome<String> = Outcome.Err("never attempted")
+        repeat(attempts) { attempt ->
+            when (val r = client.rpc(name, body)) {
+                is Outcome.Ok -> return r
+                is Outcome.Err -> {
+                    last = r
+                    if (attempt < attempts - 1) delay(2000)
+                }
+            }
+        }
+        return last
+    }
 
     val currentUserId: String? get() = client.currentUserId
     val isSignedIn: Boolean get() = client.isSignedIn
@@ -147,10 +179,11 @@ class LeadRepository(private val client: SupabaseClient) {
      * Records that this agent opened a lead's full record. Because the app
      * shows PAN / DOB / income / credit limit unmasked, this log is the only
      * way to answer "who saw this customer's data" after the fact.
-     * Fire-and-forget: a logging failure must never block a call.
+     * Fire-and-forget: a logging failure must never block a call. Retried
+     * (see [retryRpc]) since there is no UI to retry from if it fails silently.
      */
     suspend fun logLeadView(leadId: Long) {
-        client.rpc("log_lead_view", buildJsonObject { put("p_lead_id", leadId) }.toString())
+        retryRpc("log_lead_view", buildJsonObject { put("p_lead_id", leadId) }.toString())
     }
 
     /**
@@ -159,9 +192,10 @@ class LeadRepository(private val client: SupabaseClient) {
      * failure (denied permission, no service, radio off) without ever
      * touching their phone. Fire-and-forget, same as [logLeadView]: this
      * observes the SMS/call flow, it must never be able to affect it.
+     * Retried (see [retryRpc]).
      */
     suspend fun logSmsOutcome(leadId: Long?, mobile: String, outcome: String) {
-        client.rpc(
+        retryRpc(
             "log_sms_outcome",
             buildJsonObject {
                 put("p_lead_id", leadId)
@@ -175,10 +209,10 @@ class LeadRepository(private val client: SupabaseClient) {
      * Once per cold launch (alongside update.UpdateChecker's own check),
      * so "which agents are on which build" is a direct query instead of
      * inferred from unrelated activity. Fire-and-forget, same reasoning
-     * as [logLeadView] and [logSmsOutcome].
+     * as [logLeadView] and [logSmsOutcome]. Retried (see [retryRpc]).
      */
     suspend fun reportAppVersion(version: String) {
-        client.rpc("report_app_version", buildJsonObject { put("p_version", version) }.toString())
+        retryRpc("report_app_version", buildJsonObject { put("p_version", version) }.toString())
     }
 
     /**
