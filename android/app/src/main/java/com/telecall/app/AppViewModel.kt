@@ -196,7 +196,14 @@ class AppViewModel(
         // is telemetry, it must never be able to slow down or fail that.
         viewModelScope.launch {
             val device = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}"
-            runCatching { repo.reportAppVersion(BuildConfig.VERSION_NAME, device) }
+            // Unlike device (a model string, identical across every unit of
+            // that model), ANDROID_ID is generated per install and stable
+            // across relaunches — see backend/18_android_id_report.sql.
+            val androidId = android.provider.Settings.Secure.getString(
+                getApplication<android.app.Application>().contentResolver,
+                android.provider.Settings.Secure.ANDROID_ID
+            )
+            runCatching { repo.reportAppVersion(BuildConfig.VERSION_NAME, device, androidId) }
         }
     }
 

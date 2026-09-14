@@ -648,6 +648,28 @@ Verified on-device: the banner renders "Call" with no digits anywhere
 on the card, and tapping it still reaches the SIM picker / dialer as
 before.
 
+**Migration 18 adds `device_id` (`Settings.Secure.ANDROID_ID`) alongside
+the existing `device_model` (v1.9.4)** — prompted by manisha, kishan,
+and dilkhush all reporting the identical `device_model` ("samsung
+SM-M315F"). `device_model` is `Build.MANUFACTURER + Build.MODEL`, a
+*model* string identical across every unit of that model ever made
+(plausibly just the phone the company bulk-issued to its telecalling
+staff), so it can't settle whether that's three separate phones or one
+phone switching between three accounts. Checked the actual disposition
+timestamps for those three agents instead: 20 agent-to-agent switches
+over two days, median gap 147s, minimum 18s — too fast to be a real
+sign-out/sign-in/reload cycle done by hand, repeatedly; consistent with
+three people genuinely working concurrently, not one phone reused.
+`ANDROID_ID` is generated once per app install and stable across
+relaunches (changes only on factory reset or uninstall/reinstall), so
+it's the actual per-device signal `device_model` never was. The
+dashboard's App versions table (admin-only, same as Device) flags any
+`device_id` shared by two agents in red — that would be real proof of
+one phone under two accounts, unlike a shared `device_model`. No
+permission needed to read it. Verified on-device: qa_test relaunching
+on v1.9.4 reported a `device_id`, immediately visible in
+`v_app_versions`.
+
 ---
 
 ## 5. Verification status — READ THIS

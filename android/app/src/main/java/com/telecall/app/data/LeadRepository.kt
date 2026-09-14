@@ -215,13 +215,21 @@ class LeadRepository(private val client: SupabaseClient) {
      * real phone or a desktop Android player (BlueStacks, LDPlayer, ...)"
      * directly instead of inferring it from an always-missing SIM slot
      * and silent SMS failures — see backend/17_device_info_report.sql.
+     *
+     * [deviceId] (Settings.Secure.ANDROID_ID) goes further: device_model
+     * is a *model* string, identical across every unit of that model, so
+     * it can't tell two agents on the same phone model apart from one
+     * phone switching between their accounts. ANDROID_ID is generated
+     * once per app install and stable across relaunches — see
+     * backend/18_android_id_report.sql.
      */
-    suspend fun reportAppVersion(version: String, deviceModel: String) {
+    suspend fun reportAppVersion(version: String, deviceModel: String, deviceId: String?) {
         retryRpc(
             "report_app_version",
             buildJsonObject {
                 put("p_version", version)
                 put("p_device_model", deviceModel)
+                deviceId?.let { put("p_device_id", it) }
             }.toString()
         )
     }
