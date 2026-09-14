@@ -89,6 +89,8 @@ backend/15_app_version_report.sql   profiles.app_version(_reported_at),
 backend/16_lead_search.sql          search_lead() RPC — whole-database
                                      mobile/PAN lookup, exact-match only,
                                      audited + rate-limited — see section 4
+backend/17_device_info_report.sql   profiles.device_model — real phone vs.
+                                     a desktop Android player — see section 4
 
 android/app/src/main/java/com/telecall/app/
   MainActivity.kt              screen routing + the notification deep-link
@@ -542,6 +544,25 @@ RAM, more aggressive OEM battery management than a dev machine's
 emulator). If missing SMS reports persist after this ships, the next
 step is a `WorkManager`-backed persisted retry rather than a bigger
 number here — that survives process death, this doesn't.
+
+**`profiles.device_model` (`Build.MANUFACTURER` + `Build.MODEL`) exists
+to settle "is this a real phone" without guessing.** Two real agents
+(Kishan, Manisha) showed `sim_slot = null` on every single call, across
+every app version, and zero SMS delivery reports even after the retry
+fix above shipped and was confirmed working. That specific pattern —
+never a resolved SIM, never a successful SMS, but dispositions still
+saving normally — is what a desktop Android player (BlueStacks,
+LDPlayer, NoxPlayer, MEmu; all common in India, all plausible for a
+telecalling desk since they give a bigger screen and physical keyboard)
+looks like from the backend: no real cellular radio, so `dial()`'s
+`CallResult.Dialled` branch and `sendApplyCardSms()` both have nothing
+to attach to. Reported alongside the existing version report
+(`report_app_version()`, same fire-and-forget + retry treatment) rather
+than as a separate call. The dashboard's App versions table flags a
+`device_model` containing `bluestacks`/`nox`/`ldplayer`/`memu`/
+`genymotion`/`generic`/`sdk_gphone` in red — that list is Android
+emulator/player signatures, not an exhaustive detector, and exists to
+make the answer visible at a glance rather than to gate anything.
 
 ---
 

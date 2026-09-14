@@ -186,7 +186,8 @@ class AppViewModel(
         // coroutine, not sequenced with the profile/queue load above: this
         // is telemetry, it must never be able to slow down or fail that.
         viewModelScope.launch {
-            runCatching { repo.reportAppVersion(BuildConfig.VERSION_NAME) }
+            val device = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}"
+            runCatching { repo.reportAppVersion(BuildConfig.VERSION_NAME, device) }
         }
     }
 

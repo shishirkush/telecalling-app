@@ -210,9 +210,20 @@ class LeadRepository(private val client: SupabaseClient) {
      * so "which agents are on which build" is a direct query instead of
      * inferred from unrelated activity. Fire-and-forget, same reasoning
      * as [logLeadView] and [logSmsOutcome]. Retried (see [retryRpc]).
+     *
+     * [deviceModel] (Build.MANUFACTURER + Build.MODEL) settles "is this a
+     * real phone or a desktop Android player (BlueStacks, LDPlayer, ...)"
+     * directly instead of inferring it from an always-missing SIM slot
+     * and silent SMS failures — see backend/17_device_info_report.sql.
      */
-    suspend fun reportAppVersion(version: String) {
-        retryRpc("report_app_version", buildJsonObject { put("p_version", version) }.toString())
+    suspend fun reportAppVersion(version: String, deviceModel: String) {
+        retryRpc(
+            "report_app_version",
+            buildJsonObject {
+                put("p_version", version)
+                put("p_device_model", deviceModel)
+            }.toString()
+        )
     }
 
     /**
