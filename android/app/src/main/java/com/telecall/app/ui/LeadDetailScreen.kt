@@ -375,8 +375,12 @@ private fun CallButton(mobile: String, alreadyCalled: Boolean, onClick: () -> Un
             )
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
+                // Same PII-minimization as the queue/callback list cards —
+                // the raw number used to headline this banner; the button
+                // still dials the real mobile on tap, it just doesn't print
+                // it here anymore.
                 Text(
-                    text = formatMobile(mobile),
+                    text = "Call",
                     style = MaterialTheme.typography.headlineSmall,
                     color = MaterialTheme.colorScheme.onPrimary
                 )

@@ -638,6 +638,16 @@ level. Verified on-device: neither tab shows a raw number anymore, and
 tapping "Call" opens the correct lead's detail screen with its real
 number intact.
 
+**`LeadDetailScreen`'s own call banner (`CallButton`) had the same raw
+number headline, and got the same treatment (v1.9.3)** — the big blue
+"tap to call" card at the top of the detail screen used to headline
+the actual digits; it now just says "Call" / "Tap to call". Tapping it
+is unchanged — same `onCall`/`onMobileTapped` wiring, same SIM picker,
+still dials the real number — this is purely the visible label.
+Verified on-device: the banner renders "Call" with no digits anywhere
+on the card, and tapping it still reaches the SIM picker / dialer as
+before.
+
 ---
 
 ## 5. Verification status — READ THIS
