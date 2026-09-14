@@ -792,6 +792,22 @@ correctly raised `P0001: Leads can only be claimed between 9:00 AM and
 logout row for the calling account, readable back through
 `v_login_log`.
 
+**The web app's own login-event call had a real bug, caught only by
+testing it live end to end, not by reading the code**: it was
+fire-and-forget, same as the version report right after it — but
+unlike `AppViewModel`'s coroutines on Android (which keep running
+independent of screen navigation), a browser cancels an in-flight
+`fetch` the moment the page navigates away. Signing in and then
+immediately navigating elsewhere lost the login row entirely; the
+logout call right next to it never had this bug because it was already
+`await`ed (losing a logout mattered enough at the time to justify the
+extra moment before the sign-out button's UI transition). Fixed by
+`await`ing the login call too. Worth remembering generally: an
+un-awaited call on the web app is only really fire-and-forget if
+nothing is going to navigate the page away immediately after — true
+for background telemetry mid-session, not safe to assume around a
+screen transition.
+
 ---
 
 ## 5. Verification status — READ THIS
