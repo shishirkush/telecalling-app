@@ -6,8 +6,10 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,6 +18,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
@@ -166,10 +170,30 @@ fun LeadQueueScreen(
                             modifier = Modifier.align(Alignment.Center)
                         )
                     }
+                    selectedTab == 1 -> {
+                        // Callbacks are a bounded, already-worked set — the
+                        // agent has spoken to every one of these before and
+                        // committed to calling back, often needing several
+                        // reattempts before it's resolved. Full visibility
+                        // here is what lets them triage which overdue
+                        // callback to prioritize; the one-at-a-time
+                        // restriction below is specifically about the fresh,
+                        // never-yet-touched pool, where the "many strangers'
+                        // numbers visible in one glance" concern actually
+                        // applies. Same LeadCard, same tap-through to detail.
+                        LazyColumn(
+                            contentPadding = PaddingValues(12.dp, 8.dp, 12.dp, 88.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(visibleLeads, key = { it.id }) { lead ->
+                                LeadCard(lead = lead, onClick = { onOpenLead(lead) })
+                            }
+                        }
+                    }
                     else -> {
                         // Deliberately one card, not a list: visibleLeads is
-                        // already server-ordered by priority (due callbacks
-                        // first, then least-recently-touched — see
+                        // already server-ordered by priority (never-attempted
+                        // before retried, then least-recently-touched — see
                         // claim_next_lead's ORDER BY), so .first() is the
                         // right lead to work next. Showing the whole assigned
                         // batch at once meant every customer's name and
@@ -184,7 +208,7 @@ fun LeadQueueScreen(
                                 .padding(12.dp, 8.dp, 12.dp, 88.dp)
                         ) {
                             Text(
-                                text = if (selectedTab == 1) "Next callback due" else "Your next lead",
+                                text = "Your next lead",
                                 style = MaterialTheme.typography.labelLarge,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

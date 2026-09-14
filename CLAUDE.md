@@ -596,7 +596,7 @@ when it happens, inaccessible to them until they move to an actual
 phone. Worth confirming with anyone on a suspected desktop setup
 before pushing this update to them, not after.
 
-**The Queue screen shows one lead at a time, not the whole assigned
+**The Queue tab shows one lead at a time, not the whole assigned
 batch — `ui/LeadQueueScreen.kt`'s `visibleLeads.first()`, not a
 `LazyColumn` of all of them.** Until this, every currently-assigned
 lead's name and mobile number rendered on screen simultaneously — a
@@ -609,8 +609,22 @@ is unchanged — `visibleLeads` is still the server's priority order
 genuinely the next lead to work, not an arbitrary one. Saving a
 disposition still refreshes the queue and reveals the next one in its
 place; a plain count ("N more waiting") is the only hint given about
-the rest of the batch — no names, no numbers. Applies to both the
-Queue and CallBacks tabs identically.
+the rest of the batch — no names, no numbers.
+
+**The CallBacks tab was deliberately reverted back to a full list
+(v1.9.1)** — the same one-at-a-time restriction applied there for one
+release, but callbacks aren't the fresh, never-touched pool the
+restriction was built for: every lead on that tab is one the agent has
+already spoken to and explicitly committed to calling back, often
+needing several reattempts before it resolves, so full visibility is
+what lets them triage which overdue callback to prioritize rather than
+paging through one at a time. Same `LeadCard`, same tap-through to
+`LeadDetailScreen`; only the Queue tab (fresh, unattempted leads) keeps
+the single-card `visibleLeads.first()` view. Verified on-device: two
+leads dispositioned as Call Later both render as an unbroken
+`LazyColumn` on the CallBacks tab (`CallBacks (2)`), while the Queue
+tab for a third, freshly-claimed lead still shows only "Your next
+lead" as a single card.
 
 ---
 
