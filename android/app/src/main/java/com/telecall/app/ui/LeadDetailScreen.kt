@@ -318,13 +318,24 @@ fun LeadDetailScreen(
 
             // ---------- Save ----------
             Spacer(Modifier.height(20.dp))
-            // The only disabled-Save reason that isn't self-evident from
+            // The only disabled-Save reasons that aren't self-evident from
             // the form itself (a missing status/quality/callback is
             // obvious just by looking at those fields) — see
-            // backend/22_require_call_before_disposition.sql.
-            if (!state.hasCalledThisLead) {
-                Text(
+            // backend/22_require_call_before_disposition.sql and
+            // backend/23_minimum_call_dwell_time.sql. Not a live-ticking
+            // countdown on purpose: dial()'s single delayed recheck flips
+            // this straight from "waiting" to enabled at the 30s mark,
+            // rather than recomposing every second for a number few
+            // agents will be staring at instead of talking to the customer.
+            when {
+                !state.hasCalledThisLead -> Text(
                     text = "Call this customer above before you can save an outcome.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                state.callDwellSecondsRemaining > 0 -> Text(
+                    text = "Wait a bit longer after calling before you can save.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(bottom = 8.dp)

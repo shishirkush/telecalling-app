@@ -17,6 +17,7 @@ import com.telecall.app.data.Profile
 import com.telecall.app.update.UpdateChecker
 import com.telecall.app.update.UpdateInfo
 import com.telecall.app.update.UpdateInstaller
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -45,6 +46,11 @@ data class UiState(
     val pendingNumber: String? = null,
     val calledOnSimSlot: Int? = null,
     val hasCalledThisLead: Boolean = false,
+    // Epoch millis when the server confirmed the call attempt landed —
+    // see backend/23_minimum_call_dwell_time.sql. Null until confirmed;
+    // used only to compute the client-side countdown hint below, the
+    // save itself is enforced server-side regardless of this value.
+    val callAttemptConfirmedAt: Long? = null,
 
     // --- disposition form ---
     val formStatus: CallStatus? = null,
@@ -76,12 +82,30 @@ data class UiState(
     val needsQuality: Boolean get() = formStatus == CallStatus.LEAD
     val needsCallback: Boolean get() = formStatus == CallStatus.CALL_LATER
 
+    /**
+     * Seconds still left before the server will accept a save, or 0 once
+     * the wait is over — mirrors backend/23_minimum_call_dwell_time.sql's
+     * 30-second floor so the UI doesn't let the agent try to save and
+     * bounce off a server error it already knows is coming.
+     */
+    val callDwellSecondsRemaining: Int
+        get() {
+            val since = callAttemptConfirmedAt ?: return -1 // -1: hasn't called yet, distinct from "still waiting"
+            val elapsedMs = System.currentTimeMillis() - since
+            return ((MIN_CALL_DWELL_MS - elapsedMs) / 1000).toInt().coerceAtLeast(0)
+        }
+
     val canSave: Boolean
         get() = formStatus != null &&
             (!needsQuality || formQuality != null) &&
             (!needsCallback || formCallbackAt != null) &&
             hasCalledThisLead &&
+            callDwellSecondsRemaining <= 0 &&
             !saving
+
+    companion object {
+        const val MIN_CALL_DWELL_MS = 30_000L
+    }
 }
 
 class AppViewModel(
@@ -298,7 +322,8 @@ class AppViewModel(
                 formRemarks = "",
                 formCallbackAt = null,
                 calledOnSimSlot = null,
-                hasCalledThisLead = false
+                hasCalledThisLead = false,
+                callAttemptConfirmedAt = null
             )
         }
         // Audit trail — the agent is about to see unmasked PAN / DOB / income.
@@ -440,17 +465,31 @@ class AppViewModel(
             simManager.sendApplyCardSms(number, sim, _state.value.selected?.id)
         }
         // Records the attempt server-side — save_disposition() refuses to
-        // accept an outcome for this lead until this lands (see
-        // backend/22_require_call_before_disposition.sql). hasCalledThisLead
-        // only flips once the server confirms, not optimistically on tap:
-        // the UI must never look like saving is allowed when the server
-        // would still refuse it. A failed log here just leaves the flag
-        // false — tapping Call again retries it.
+        // accept an outcome for this lead until this lands, and then not
+        // for another 30 seconds after (see
+        // backend/22_require_call_before_disposition.sql and
+        // backend/23_minimum_call_dwell_time.sql — the dwell floor exists
+        // because logCallAttempt fires the instant Call is tapped, before
+        // the call even rings, so "tap, hang up immediately, save" would
+        // otherwise satisfy the first check exactly as well as a real
+        // unanswered call). hasCalledThisLead only flips once the server
+        // confirms, not optimistically on tap: the UI must never look
+        // like saving is allowed when the server would still refuse it.
+        // A failed log here just leaves the flag false — tapping Call
+        // again retries it.
         val leadId = _state.value.selected?.id
         if (reachedOut && leadId != null) {
             viewModelScope.launch {
                 if (repo.logCallAttempt(leadId) is Outcome.Ok) {
-                    _state.update { it.copy(hasCalledThisLead = true) }
+                    _state.update { it.copy(hasCalledThisLead = true, callAttemptConfirmedAt = System.currentTimeMillis()) }
+                    // canSave/callDwellSecondsRemaining are computed from
+                    // wall-clock time, so nothing re-evaluates them once
+                    // the countdown starts unless something else emits a
+                    // new state — this no-op update is that: it exists
+                    // purely to make Compose recompose and notice the
+                    // 30s floor has now passed, re-enabling Save.
+                    delay(UiState.MIN_CALL_DWELL_MS)
+                    _state.update { it }
                 }
             }
         }

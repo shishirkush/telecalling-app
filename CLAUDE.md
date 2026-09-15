@@ -918,6 +918,39 @@ Save stays disabled with the hint visible until Call is tapped, becomes
 enabled only after the server confirms, and the disposition saves
 successfully.
 
+**Migration 23 adds a 30-second floor between the call attempt and the
+save, on top of migration 22's "must have called at all" (v1.9.9 /
+webapp)** — raised directly by the user asking "can an agent tap Call,
+hang up immediately, and still save No Answer / Switched Off?" Answer:
+yes, exactly, and there was no way to close that with a permission-free
+check on call *duration* — `log_call_attempt` fires the instant Call is
+tapped, before the call even rings; this app has a standing rule never
+to add `READ_CALL_LOG` (section 8), and there is no browser API at all
+for a web page to observe real call state. A minimum elapsed time is
+the honest, permission-free approximation: it can't prove the call was
+answered, but it makes the fastest possible fake cycle no quicker than
+a real one would realistically take. `save_disposition()` now gives a
+distinct error for each failure mode — "Call this customer before
+saving an outcome" (no fresh attempt at all) vs. "Wait at least 30
+seconds after calling before saving an outcome" (a fresh attempt
+exists, just not old enough yet) — so the agent (and the client) knows
+which one applies.
+
+Client-side, both apps mirror the 30s floor via `callDwellSecondsRemaining`
+(Android) / `callDwellMsRemaining()` (web) so Save doesn't let the agent
+try early and bounce off a server error it already knows is coming —
+not a live-ticking countdown, a single delayed re-check scheduled the
+moment the call attempt is confirmed (`delay(30_000)` on Android,
+`setTimeout(..., 30000)` on web) that flips the button straight from
+"waiting" to enabled at the 30s mark. Verified directly against the
+live database (no attempt → refused; attempt <30s old → refused with
+the distinct wait message; attempt ≥30s old → accepted, each its own
+request) and through the actual webapp UI: selecting a status, tapping
+Call, and immediately checking showed Save still disabled with the
+"wait a bit longer" hint (status selection preserved across the tap);
+waiting past 30 seconds with no further interaction had it unlock on
+its own, and the save then succeeded.
+
 ---
 
 ## 5. Verification status — READ THIS
