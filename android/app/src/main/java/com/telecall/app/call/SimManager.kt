@@ -223,13 +223,21 @@ class SimManager(private val context: Context) {
         }
 
         try {
-            // context.getSystemService(SmsManager::class.java) is the
-            // non-deprecated replacement for SmsManager.getDefault(),
-            // available since API 23 — comfortably within minSdk 24.
-            // createForSubscriptionId is API 31+, so older devices (and any
-            // OEM stack that didn't resolve a subscriptionId) just fall
-            // back to the phone's default SMS SIM.
-            val default = context.getSystemService(SmsManager::class.java)
+            // context.getSystemService(SmsManager::class.java) looks like
+            // the non-deprecated replacement for SmsManager.getDefault(),
+            // but it was NOT registered for that generic class-based
+            // lookup until API 31 (Android 12) — on anything older it
+            // returns null, and calling .sendTextMessage() on that null
+            // reference is exactly the crash a real device hit: "Attempt
+            // to invoke virtual method ... SmsManager.sendTextMessage(...)
+            // on a null object reference", on a Xiaomi Redmi 9A that never
+            // shipped past Android 11. SmsManager.getDefault() is
+            // deprecated since API 31 but still fully functional and the
+            // only reliable way to get an instance below it — this tries
+            // the modern lookup first (works on 31+) and falls back to the
+            // deprecated static method when it returns null (< 31).
+            @Suppress("DEPRECATION")
+            val default = context.getSystemService(SmsManager::class.java) ?: SmsManager.getDefault()
             val manager = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && sim?.subscriptionId != null) {
                 default.createForSubscriptionId(sim.subscriptionId)
             } else {

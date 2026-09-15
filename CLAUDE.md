@@ -1014,6 +1014,27 @@ surfaced a real, previously-invisible problem: one agent has 89
 permission) against only 22 successful sends — exactly the kind of
 single-agent failure the fleet-wide total was hiding.
 
+**That exception's actual root cause, once visible: `SimManager.kt`'s
+own comment about `getSystemService(SmsManager::class.java)` was wrong
+(v1.10.0)** — it claimed the generic class-based lookup was "available
+since API 23," but `SmsManager` was not registered for it until API 31
+(Android 12); on any earlier Android version `getSystemService`
+returns `null`, and the following `.sendTextMessage()` call NPEs on
+that null reference — precisely the crash in the log. manisha's real
+device (`Xiaomi M2006C3LI`, a Redmi 9A) corroborates this exactly: a
+real, well-known budget phone that shipped on Android 10 and was, at
+most, updated to Android 11 by Xiaomi — never Android 12, so every
+single Apply Card SMS on her phone hit this. Fixed with the standard
+pattern: `getSystemService(SmsManager::class.java) ?:
+SmsManager.getDefault()` — try the modern lookup first (works on 31+,
+avoids the deprecation warning where possible), fall back to the
+deprecated-but-still-fully-functional static method when it returns
+null (everything below 31). This bug could only ever have been found
+this way — from the dashboard's own data, working backward from a
+symptom on a real device — not by reading the code in isolation, since
+the code's own comment confidently asserted the opposite of what was
+actually true.
+
 ---
 
 ## 5. Verification status — READ THIS
