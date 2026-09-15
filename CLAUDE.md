@@ -980,6 +980,40 @@ in-progress leads (RLS via `assigned_to`) and already-dispositioned
 ones (RLS via the disposition-history clause), matching real same-day
 activity generated earlier in this session's own testing.
 
+**Also collapsed every report/form on the main dashboard under its
+`<h2>`, expanding on click** — the page had grown into one long scroll
+of tables. `initCollapsibleSections()` runs once at script load,
+dynamically moving each h2's following siblings (up to the next h2)
+into a wrapper div rather than hand-restructuring the markup — table
+IDs and existing `getElementById`-based render functions are
+unaffected by the extra nesting. A nested control inside a header (App
+versions' own "Archived (N)" button) is excluded from the toggle via
+`e.target.closest("button")` so it keeps navigating normally instead
+of also collapsing its section. Verified via a local static server
+(`file://` doesn't execute JS in the preview pane, so a real `http://`
+origin was needed) with `#app` forced visible ahead of a real login:
+every section starts collapsed, expands independently, and the nested
+button behaves correctly.
+
+**`v_sms_outcomes` (migration 24) now breaks the Apply Card SMS
+delivery report down by agent, not just by outcome** — raised directly
+by the user: the old view (migration 14) totalled every agent's
+outcomes together, so one agent stuck on `permission_denied` was
+invisible in a fleet-wide total that also included everyone else's
+successful sends, and the dashboard "cannot be assessed" for exactly
+that reason. `sms_delivery_log` already carried `agent_id`; the view
+just never grouped by it. Column list changes shape entirely (3
+columns starting with `outcome` → 6 starting with `full_name`), which
+`CREATE OR REPLACE VIEW` rejects (42P16 — it only ever allows
+appending new columns after the existing ones, never reordering), so
+this is a `DROP VIEW` + `CREATE VIEW` instead — safe specifically
+because nothing else in the database references this view, only the
+dashboard queries it over REST. Confirmed live this immediately
+surfaced a real, previously-invisible problem: one agent has 89
+`SmsManager` exceptions (a null-object crash, not merely a denied
+permission) against only 22 successful sends — exactly the kind of
+single-agent failure the fleet-wide total was hiding.
+
 ---
 
 ## 5. Verification status — READ THIS
