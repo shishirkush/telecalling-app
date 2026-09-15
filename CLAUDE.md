@@ -861,6 +861,63 @@ that same calendar day. Given its own independent filter
 (`loginActivityRangeDays`), defaulting to **Last 7 days** rather than
 Today, decoupled from the main dashboard's `rangeDays`/`sinceIso()`.
 
+**Migration 22 requires an actual call attempt before `save_disposition()`
+will accept any outcome** (v1.9.8 / webapp) — the suspicion this closes:
+an agent claims a lead, sees the customer's name/mobile/PAN/DOB/income/
+address, and saves an outcome (or just abandons it) without ever
+placing a call, harvesting contact data instead of working the queue.
+The Call banner already hides the raw digits behind a button, but that
+was only ever a UI affordance — nothing stopped the RPC itself being
+called directly. `log_call_attempt(p_lead_id)` is a new, narrow RPC the
+app calls the instant the agent taps "Call"; `save_disposition()` now
+refuses unless a matching row exists with `attempted_at` *strictly
+after* the lead's current `last_called_at` (coalesced to `-infinity`
+for a lead's very first disposition, since there's no prior call to
+compare against). Admin's existing write-override is exempt — a
+correction doesn't require the admin to have personally called.
+
+This does not prove a call *connected*, only that the agent's client
+registered an attempt before trying to save — the same class of
+imperfect-but-meaningful signal as `hasCalledThisLead`/`logSmsOutcome`
+already were. A determined agent could still fake the RPC call without
+dialling, but that requires deliberately working around the app rather
+than doing nothing, which is the realistic threat here.
+
+`hasCalledThisLead` on both clients now only flips to true once the
+server *confirms* `log_call_attempt` landed, not optimistically on tap
+— it used to flip immediately in both Android's `dial()` and the
+webapp's `onCallTapped()`, which would have let the UI show "you can
+save" in a moment where the server would still refuse it. `canSave` /
+`canSave()` on both clients now also require it, with a one-line hint
+("Call this customer above before you can save an outcome.") next to
+the Save button — the only disabled-Save reason that isn't self-evident
+just from looking at the form, unlike a missing status/quality/callback.
+
+**Two real bugs found during verification, not by reading the code:**
+1. The scoping check first used `>=` rather than `>`. Confirmed live:
+   `log_call_attempt()` and `save_disposition()` called back-to-back
+   land on the *identical* `now()` in PostgreSQL (fixed per-transaction,
+   not per-statement) when run in the same transaction — `>=` let that
+   one attempt satisfy two separate dispositions on the same lead.
+   Caught by a same-transaction test script, but the fix (strict `>`)
+   is correct regardless: an attempt already "spent" on one disposition
+   must never also satisfy a different, later one.
+2. The webapp's `retryRpc()` never actually returned a usable result —
+   callers just fired it and moved on. Needed a real return value here
+   specifically because `onCallTapped()` has to know whether the log
+   succeeded before flipping `hasCalledThisLead`; fixed to return
+   `{ error }`, which is backward-compatible with every existing
+   fire-and-forget caller that ignored the return value anyway.
+
+Verified directly against the live database, each case its own request
+(not one script/transaction, since that's what surfaced bug #1 above):
+no call attempt logged → refused; a fresh attempt logged → accepted; a
+stale attempt already used for a previous disposition on the same lead
+→ refused. Then verified through the actual webapp UI end to end:
+Save stays disabled with the hint visible until Call is tapped, becomes
+enabled only after the server confirms, and the disposition saves
+successfully.
+
 ---
 
 ## 5. Verification status — READ THIS

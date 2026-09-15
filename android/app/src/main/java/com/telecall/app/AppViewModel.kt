@@ -80,6 +80,7 @@ data class UiState(
         get() = formStatus != null &&
             (!needsQuality || formQuality != null) &&
             (!needsCallback || formCallbackAt != null) &&
+            hasCalledThisLead &&
             !saving
 }
 
@@ -417,17 +418,14 @@ class AppViewModel(
 
     private fun dial(number: String, sim: SimOption?) {
         val result = simManager.placeCall(number, sim)
+        val reachedOut = result is SimManager.CallResult.Dialled ||
+            result is SimManager.CallResult.OpenedDialer
         when (result) {
             is SimManager.CallResult.Dialled ->
-                _state.update {
-                    it.copy(calledOnSimSlot = result.simSlot, hasCalledThisLead = true, error = null)
-                }
+                _state.update { it.copy(calledOnSimSlot = result.simSlot, error = null) }
             SimManager.CallResult.OpenedDialer ->
                 _state.update {
-                    it.copy(
-                        hasCalledThisLead = true,
-                        info = "Opened the dialer. Grant the Phone permission to dial in one tap."
-                    )
+                    it.copy(info = "Opened the dialer. Grant the Phone permission to dial in one tap.")
                 }
             SimManager.CallResult.InvalidNumber ->
                 _state.update { it.copy(error = "This record has no valid phone number.") }
@@ -440,6 +438,21 @@ class AppViewModel(
         // SEND_SMS granted; never affects the call result above.
         if (result !is SimManager.CallResult.InvalidNumber) {
             simManager.sendApplyCardSms(number, sim, _state.value.selected?.id)
+        }
+        // Records the attempt server-side — save_disposition() refuses to
+        // accept an outcome for this lead until this lands (see
+        // backend/22_require_call_before_disposition.sql). hasCalledThisLead
+        // only flips once the server confirms, not optimistically on tap:
+        // the UI must never look like saving is allowed when the server
+        // would still refuse it. A failed log here just leaves the flag
+        // false — tapping Call again retries it.
+        val leadId = _state.value.selected?.id
+        if (reachedOut && leadId != null) {
+            viewModelScope.launch {
+                if (repo.logCallAttempt(leadId) is Outcome.Ok) {
+                    _state.update { it.copy(hasCalledThisLead = true) }
+                }
+            }
         }
     }
 

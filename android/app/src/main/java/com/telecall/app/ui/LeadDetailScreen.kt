@@ -318,6 +318,18 @@ fun LeadDetailScreen(
 
             // ---------- Save ----------
             Spacer(Modifier.height(20.dp))
+            // The only disabled-Save reason that isn't self-evident from
+            // the form itself (a missing status/quality/callback is
+            // obvious just by looking at those fields) — see
+            // backend/22_require_call_before_disposition.sql.
+            if (!state.hasCalledThisLead) {
+                Text(
+                    text = "Call this customer above before you can save an outcome.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+            }
             Button(
                 onClick = { saveOutcome() },
                 enabled = state.canSave,

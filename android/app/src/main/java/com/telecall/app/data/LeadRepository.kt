@@ -187,6 +187,25 @@ class LeadRepository(private val client: SupabaseClient) {
     }
 
     /**
+     * Records that this agent tapped "Call" for this lead — the server-
+     * side gate save_disposition() checks before accepting any outcome
+     * (see backend/22_require_call_before_disposition.sql), so a lead
+     * can't be claimed, its details viewed, and dispositioned again
+     * without ever actually calling. Unlike [logLeadView]/[logSmsOutcome]
+     * this is NOT fire-and-forget: the caller needs to know whether it
+     * actually landed, since [dial] only sets [Outcome.Ok] when it did —
+     * a UI that optimistically flipped "called" state on tap alone could
+     * let the agent try to save when the server would still refuse them.
+     * Retried (see [retryRpc]) for the same reason.
+     */
+    suspend fun logCallAttempt(leadId: Long): Outcome<Unit> {
+        return when (val r = retryRpc("log_call_attempt", buildJsonObject { put("p_lead_id", leadId) }.toString())) {
+            is Outcome.Err -> r
+            is Outcome.Ok -> Outcome.Ok(Unit)
+        }
+    }
+
+    /**
      * Reports what actually happened when the Apply Card SMS was sent.
      * Agents work remotely — this is the only way to see a real-device
      * failure (denied permission, no service, radio off) without ever
