@@ -951,6 +951,35 @@ Call, and immediately checking showed Save still disabled with the
 waiting past 30 seconds with no further interaction had it unlock on
 its own, and the save then succeeded.
 
+**The dashboard's Agent daily report (dashboard/index.html) turns
+migrations 22/23's data into something a supervisor can actually read
+at a glance, not just enforce against.** Clicking an agent's name — in
+App versions, Agent performance, or Archived agents, all wired to the
+same `openAgentReport()` — opens a chronological, per-day timeline
+merging `login_log`, `call_attempts`, and `call_dispositions` for that
+one agent. The column that matters is **Gap**: the time between
+tapping Call and saving that lead's outcome, computed client-side by
+matching each disposition to the latest `call_attempts` row for the
+same lead at or before the save (not a perfect reconstruction of
+`save_disposition()`'s own matching — a lead re-attempted across
+multiple callbacks in one day could have more than one candidate — but
+right in the overwhelmingly common one-attempt-per-save case, which is
+what this view exists to check). A real call varies a lot gap to gap
+(a conversation runs long, a re-dial is quick); a gap that's
+*consistently* just over the 30-second floor across many leads in a
+row is what tapping Call, hanging up immediately, and waiting out the
+timer looks like — flagged red under 40s, a 10-second margin past the
+floor itself, and surfaced as its own summary tile ("Gap under 40s: N
+of M saves") so it doesn't require scanning every row. Mobile numbers
+in the lead column are shown only to admin — same `isAdmin` gating as
+every other number on this dashboard, not the broader `manages_agent()`
+scope the rest of the report uses for read access. Verified directly
+against the live database under a simulated admin RLS session: the
+`call_attempts` → `leads` join correctly returns names for both
+in-progress leads (RLS via `assigned_to`) and already-dispositioned
+ones (RLS via the disposition-history clause), matching real same-day
+activity generated earlier in this session's own testing.
+
 ---
 
 ## 5. Verification status — READ THIS
