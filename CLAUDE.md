@@ -808,6 +808,27 @@ nothing is going to navigate the page away immediately after — true
 for background telemetry mid-session, not safe to assume around a
 screen transition.
 
+**`DeviceSupport.kt`'s device check had a real gap, found by reading
+the dashboard's own App versions table**: kishan's `device_model` came
+back as "Floydwiz_Technologies Primebook-WiFi" while on v1.9.4 (already
+past the hard block) — Primebook is a real, physically-manufactured
+Android laptop (keyboard, trackpad, no cellular modem at all on the
+WiFi-only SKU this is), not a PC emulator. It got past
+`hasSystemFeature(FEATURE_TELEPHONY)` because that flag apparently
+comes back `true` on this OEM's build despite there being no modem
+behind it — a hardware/firmware quirk of this specific device, not
+something the app can detect any other way. Added `"floydwiz"` /
+`"primebook"` to the same manufacturer/model substring list already
+used for `bluestacks`/`nox`/`ldplayer`/`memu`/`genymotion`, renamed
+from `knownDesktopPlayers` to `knownNonPhoneDevices` since a real Android
+laptop isn't an emulator — same fix, different category of device.
+Mirrored in the dashboard's `emulatorHints` list too, so this device
+model keeps flagging red there regardless of app version. The
+blocklist update only takes effect once an agent updates to the new
+APK; immediately revoking an already-logged-in agent's access needs
+`set_agent_active(..., false)` (the dashboard's Archive button) — the
+two are complementary, not a substitute for each other.
+
 ---
 
 ## 5. Verification status — READ THIS

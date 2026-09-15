@@ -8,8 +8,10 @@ import android.os.Build
  * This app's whole job is placing phone calls, so a device with no
  * telephony radio at all cannot do it — checked once at launch, before
  * sign-in, so nobody can work a queue from a desktop Android player
- * (BlueStacks, LDPlayer, NoxPlayer, MEmu) no matter how convenient the
- * bigger screen and keyboard are.
+ * (BlueStacks, LDPlayer, NoxPlayer, MEmu) or a keyboard-and-trackpad
+ * Android laptop (e.g. Floydwiz Technologies' Primebook — real
+ * hardware, not an emulator, but still not a phone) no matter how
+ * convenient the bigger screen is.
  *
  * AndroidManifest's own
  * `<uses-feature android:name="android.hardware.telephony" required="true">`
@@ -21,13 +23,22 @@ import android.os.Build
  */
 object DeviceSupport {
 
-    // Consumer PC Android players are built for games, which mostly
-    // don't care about telephony, so they generally don't bother faking
-    // FEATURE_TELEPHONY either — the hardware-feature check alone should
-    // already catch them. This list is a second, independent signal in
-    // case one ever does fake it; it is not meant to be exhaustive.
-    private val knownDesktopPlayers = listOf(
-        "bluestacks", "nox", "ldplayer", "memu", "genymotion"
+    // Two different reasons a device can end up here, same fix either
+    // way: a PC emulator (BlueStacks, LDPlayer, NoxPlayer, MEmu,
+    // Genymotion) is built for games, which mostly don't care about
+    // telephony, so hasSystemFeature(FEATURE_TELEPHONY) alone should
+    // already catch most of them — this list is a second, independent
+    // signal in case one ever fakes it. Real Android-laptop hardware
+    // (Floydwiz Technologies' Primebook, confirmed live: an agent's
+    // WiFi-only Primebook reported FEATURE_TELEPHONY = true despite
+    // having no cellular modem at all, so the hardware-feature check
+    // did not catch it) needs to be named explicitly, since it isn't
+    // virtualized and won't share an emulator's other tells. Not meant
+    // to be exhaustive either way — add to this list as new ones turn up
+    // in the dashboard's App versions table.
+    private val knownNonPhoneDevices = listOf(
+        "bluestacks", "nox", "ldplayer", "memu", "genymotion",
+        "floydwiz", "primebook"
     )
 
     fun isSupportedDevice(context: Context): Boolean {
@@ -35,9 +46,9 @@ object DeviceSupport {
             .hasSystemFeature(PackageManager.FEATURE_TELEPHONY)
         val manufacturer = Build.MANUFACTURER.lowercase()
         val model = Build.MODEL.lowercase()
-        val looksLikeKnownPlayer = knownDesktopPlayers.any {
+        val looksLikeKnownNonPhone = knownNonPhoneDevices.any {
             manufacturer.contains(it) || model.contains(it)
         }
-        return hasTelephony && !looksLikeKnownPlayer
+        return hasTelephony && !looksLikeKnownNonPhone
     }
 }
