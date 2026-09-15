@@ -167,10 +167,6 @@ class AppViewModel(
                 is Outcome.Ok -> {
                     _state.update { it.copy(loading = false, screen = Screen.QUEUE) }
                     loadProfileAndQueue()
-                    // Only a fresh credential sign-in, not cold-start-while-
-                    // already-signed-in (loadProfileAndQueue runs on both) —
-                    // otherwise every relaunch would look like a new login.
-                    viewModelScope.launch { runCatching { repo.logLoginEvent("login") } }
                 }
             }
         }
@@ -217,6 +213,17 @@ class AppViewModel(
             )
             runCatching { repo.reportAppVersion(BuildConfig.VERSION_NAME, device, androidId) }
         }
+        // Same "once per sign-in-backed launch" as the version report right
+        // above — deliberately NOT scoped to a fresh credential sign-in
+        // only. Most agents sign in once and stay signed in for days, so
+        // scoping this to signIn() left the Login Activity page almost
+        // permanently empty: real agents' sessions predate whichever
+        // build first shipped this, and a persisted session never re-hits
+        // signIn() again. Logging every app-active moment (cold start with
+        // a valid session, or a fresh sign-in) means more rows on a day
+        // with several relaunches, but that is still a real, useful
+        // presence signal — the alternative was consistently zero data.
+        viewModelScope.launch { runCatching { repo.logLoginEvent("login") } }
     }
 
     fun refreshQueue() {

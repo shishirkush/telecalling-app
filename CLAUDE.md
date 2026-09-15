@@ -829,6 +829,38 @@ APK; immediately revoking an already-logged-in agent's access needs
 `set_agent_active(..., false)` (the dashboard's Archive button) — the
 two are complementary, not a substitute for each other.
 
+**The Login Activity page was correct but looked completely broken —
+found by the user asking "why is this empty, 3 agents are logged in"
+(v1.9.7)**. Two separate causes, confirmed against the live database
+rather than guessed at:
+
+1. Real agents (manisha, kishan) were on v1.9.4, which predates
+   v1.9.5 — the build that introduced login-event logging at all. They
+   had never run code that reports it.
+2. A real agent already on the fixed web app (sumit, `1.9.4-web`) still
+   had zero rows, because the login-event call was scoped to a fresh
+   credential sign-in only (`signInBtn`'s handler / `AppViewModel
+   .signIn()`) — and agents sign in once, then stay signed in via a
+   persisted session for days. A persisted-session boot never
+   resubmits credentials, so that scoping meant the page would stay
+   almost permanently empty even once every agent updated.
+
+Fixed by moving the login-event call into the same place
+`report_app_version` already fires unconditionally on both Android
+(`loadProfileAndQueue()`) and web (the function of the same name) —
+"once per app-active moment," not "once per password typed." This
+does mean more rows on a day with several relaunches (the OS killing
+and restarting a backgrounded app is common on a phone), but that's
+still a real presence signal; the alternative was consistently zero
+data, which defeats the entire feature.
+
+Separately, the page was also silently inheriting the main dashboard's
+global date-range filter, which defaults to "Today" — so even once
+real data existed, it would only show if someone happened to log in
+that same calendar day. Given its own independent filter
+(`loginActivityRangeDays`), defaulting to **Last 7 days** rather than
+Today, decoupled from the main dashboard's `rangeDays`/`sinceIso()`.
+
 ---
 
 ## 5. Verification status — READ THIS
