@@ -129,7 +129,7 @@ class AppViewModel(
         if (DeviceSupport.isSupportedDevice(app.applicationContext)) {
             if (repo.isSignedIn) {
                 _state.update { it.copy(screen = Screen.QUEUE) }
-                loadProfileAndQueue()
+                resumePendingCallOrLoadQueue()
             }
             // Agents are remote — this is the only way to see a real-device SMS
             // failure (permission denied, no service, radio off) without ever
@@ -206,6 +206,7 @@ class AppViewModel(
         viewModelScope.launch {
             runCatching { repo.logLoginEvent("logout") }
             repo.signOut()
+            repo.clearPendingCall()
             _state.value = UiState(screen = Screen.LOGIN)
         }
     }
@@ -213,6 +214,49 @@ class AppViewModel(
     // -----------------------------------------------------------------
     // Queue
     // -----------------------------------------------------------------
+
+    /**
+     * Cold-start counterpart to [PendingCall] — checked once, before the
+     * normal queue load, so a process that got killed mid-call (dialling
+     * out backgrounds the app, and a low-RAM device's memory killer can
+     * reap it right then) drops the agent back into that same lead
+     * instead of silently losing a disposition they still owe. A stale
+     * marker (the lead closed or moved to someone else meanwhile) is
+     * cleared and falls through to the normal queue; a network failure
+     * on this first request leaves the marker alone so the next launch
+     * gets another chance rather than losing the agent's place over one
+     * bad connection.
+     */
+    private fun resumePendingCallOrLoadQueue() {
+        val pending = repo.getPendingCall()
+        if (pending != null) {
+            viewModelScope.launch {
+                when (val r = repo.getLead(pending.leadId)) {
+                    is Outcome.Ok -> {
+                        val lead = r.value
+                        if (lead != null && !lead.isClosed) {
+                            _state.update {
+                                it.copy(
+                                    screen = Screen.DETAIL,
+                                    selected = lead,
+                                    hasCalledThisLead = pending.hasCalled,
+                                    callAttemptConfirmedAt = pending.confirmedAt,
+                                    info = "Resumed after an interruption — " + (
+                                        if (pending.hasCalled) "save the outcome for this call."
+                                        else "you were about to call this lead."
+                                    )
+                                )
+                            }
+                        } else {
+                            repo.clearPendingCall()
+                        }
+                    }
+                    is Outcome.Err -> Unit // keep the marker, retry next launch
+                }
+            }
+        }
+        loadProfileAndQueue()
+    }
 
     private fun loadProfileAndQueue() {
         viewModelScope.launch {
@@ -326,6 +370,7 @@ class AppViewModel(
                 callAttemptConfirmedAt = null
             )
         }
+        repo.savePendingCall(lead.id, hasCalled = false, confirmedAt = null)
         // Audit trail — the agent is about to see unmasked PAN / DOB / income.
         viewModelScope.launch { repo.logLeadView(lead.id) }
     }
@@ -352,6 +397,10 @@ class AppViewModel(
     }
 
     fun backToQueue() {
+        // A deliberate exit, not a crash — the lead stays assigned and
+        // reopenable from the queue, but must not force-resume into it on
+        // some future cold start the agent never asked for.
+        repo.clearPendingCall()
         _state.update {
             it.copy(screen = Screen.QUEUE, selected = null, showSimPicker = false, error = null)
         }
@@ -481,7 +530,9 @@ class AppViewModel(
         if (reachedOut && leadId != null) {
             viewModelScope.launch {
                 if (repo.logCallAttempt(leadId) is Outcome.Ok) {
-                    _state.update { it.copy(hasCalledThisLead = true, callAttemptConfirmedAt = System.currentTimeMillis()) }
+                    val confirmedAt = System.currentTimeMillis()
+                    _state.update { it.copy(hasCalledThisLead = true, callAttemptConfirmedAt = confirmedAt) }
+                    repo.savePendingCall(leadId, hasCalled = true, confirmedAt = confirmedAt)
                     // canSave/callDwellSecondsRemaining are computed from
                     // wall-clock time, so nothing re-evaluates them once
                     // the countdown starts unless something else emits a
@@ -551,6 +602,7 @@ class AppViewModel(
                 is Outcome.Err -> _state.update { it.copy(saving = false, error = r.message) }
                 is Outcome.Ok -> {
                     _state.update { it.copy(saving = false, info = "Saved.") }
+                    repo.clearPendingCall()
                     // Cancel first regardless of the new status — a lead that
                     // was Call Later and is now something else must not still
                     // ring later, and one that's Call Later again gets a

@@ -88,6 +88,23 @@ class SupabaseClient(context: Context) {
     fun signOut() = persist(null)
 
     // -----------------------------------------------------------------
+    // Pending call (survives a process kill — see PendingCall's kdoc)
+    // -----------------------------------------------------------------
+
+    fun savePendingCall(pc: PendingCall) {
+        prefs.edit().putString(KEY_PENDING_CALL, json.encodeToString(pc)).apply()
+    }
+
+    fun clearPendingCall() {
+        prefs.edit().remove(KEY_PENDING_CALL).apply()
+    }
+
+    fun getPendingCall(): PendingCall? =
+        prefs.getString(KEY_PENDING_CALL, null)?.let { raw ->
+            runCatching { json.decodeFromString<PendingCall>(raw) }.getOrNull()
+        }
+
+    // -----------------------------------------------------------------
     // Auth
     // -----------------------------------------------------------------
 
@@ -271,6 +288,7 @@ class SupabaseClient(context: Context) {
 
     companion object {
         private const val KEY_SESSION = "session_json"
+        private const val KEY_PENDING_CALL = "pending_call_json"
         const val SESSION_EXPIRED = "Your session expired. Please sign in again."
         private val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
     }

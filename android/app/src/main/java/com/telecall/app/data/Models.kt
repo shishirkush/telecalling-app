@@ -91,6 +91,24 @@ data class AuthUser(
     val email: String? = null
 )
 
+/**
+ * The lead the agent had open, and whether they'd already tapped Call on
+ * it, as of the last time the app process was alive. On a low-RAM device
+ * Android can kill a backgrounded app the moment it opens the dialer —
+ * losing this in-memory state and, with it, a disposition the agent
+ * still owes (see backend/22_require_call_before_disposition.sql). This
+ * is persisted to local storage on every change and checked on cold
+ * start (AppViewModel.resumePendingCallOrLoadQueue) so a process kill
+ * mid-call drops the agent back into that same lead instead of quietly
+ * losing it.
+ */
+@Serializable
+data class PendingCall(
+    @SerialName("lead_id")     val leadId: Long,
+    @SerialName("has_called")  val hasCalled: Boolean = false,
+    @SerialName("confirmed_at") val confirmedAt: Long? = null
+)
+
 @Serializable
 data class Profile(
     val id: String,

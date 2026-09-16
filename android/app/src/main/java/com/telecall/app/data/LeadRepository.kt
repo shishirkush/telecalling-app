@@ -48,6 +48,20 @@ class LeadRepository(private val client: SupabaseClient) {
 
     fun signOut() = client.signOut()
 
+    /**
+     * Local-only bookkeeping so a process kill right after the agent taps
+     * Call doesn't silently lose the lead they were on — see PendingCall's
+     * kdoc and AppViewModel.resumePendingCallOrLoadQueue. Never touches
+     * the server: [getLead] on resume is what confirms the lead is still
+     * actually theirs to work.
+     */
+    fun savePendingCall(leadId: Long, hasCalled: Boolean, confirmedAt: Long?) =
+        client.savePendingCall(PendingCall(leadId, hasCalled, confirmedAt))
+
+    fun clearPendingCall() = client.clearPendingCall()
+
+    fun getPendingCall(): PendingCall? = client.getPendingCall()
+
     /** The signed-in agent's own profile row. */
     suspend fun myProfile(): Outcome<Profile> {
         val uid = client.currentUserId ?: return Outcome.Err(SupabaseClient.SESSION_EXPIRED)
