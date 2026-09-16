@@ -21,7 +21,12 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.telecall.app"
+        // Play package name — "ans" is the company's name, distinct from
+        // this module's Kotlin namespace/package below on purpose: the
+        // applicationId is the only part Android/Play actually treat as
+        // the app's identity, so it can carry the company branding
+        // without renaming every source file's package declaration.
+        applicationId = "ans.telecall.app"
         minSdk = 24
         targetSdk = 35
         // Bump BOTH on every release, matching the git tag (without the
@@ -31,8 +36,8 @@ android {
         // shipped with this stuck at 1.0.0/1, so nothing could ever have
         // told an installed app it was behind. versionCode just needs to
         // keep increasing; it isn't otherwise compared to anything.
-        versionCode = 26
-        versionName = "1.10.2"
+        versionCode = 27
+        versionName = "1.10.3"
 
         buildConfigField("String", "SUPABASE_URL",      "\"${prop("SUPABASE_URL")}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${prop("SUPABASE_ANON_KEY")}\"")
