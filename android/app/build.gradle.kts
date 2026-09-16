@@ -31,8 +31,8 @@ android {
         // shipped with this stuck at 1.0.0/1, so nothing could ever have
         // told an installed app it was behind. versionCode just needs to
         // keep increasing; it isn't otherwise compared to anything.
-        versionCode = 25
-        versionName = "1.10.1"
+        versionCode = 26
+        versionName = "1.10.2"
 
         buildConfigField("String", "SUPABASE_URL",      "\"${prop("SUPABASE_URL")}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${prop("SUPABASE_ANON_KEY")}\"")

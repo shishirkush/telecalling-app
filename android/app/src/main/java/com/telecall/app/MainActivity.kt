@@ -52,7 +52,11 @@ class MainActivity : ComponentActivity() {
                             onClaimNext = viewModel::claimNext,
                             onRefresh = viewModel::refreshQueue,
                             onSignOut = viewModel::signOut,
-                            onSearch = viewModel::openSearch
+                            onSearch = viewModel::openSearch,
+                            onEditContactNumber = viewModel::openContactNumberDialog,
+                            onDismissContactNumberDialog = viewModel::dismissContactNumberDialog,
+                            onContactNumberInputChange = viewModel::setContactNumberInput,
+                            onSaveContactNumber = viewModel::saveContactNumber
                         )
 
                         Screen.SEARCH -> SearchScreen(

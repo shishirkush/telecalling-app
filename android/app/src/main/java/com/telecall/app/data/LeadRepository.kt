@@ -76,6 +76,31 @@ class LeadRepository(private val client: SupabaseClient) {
     }
 
     /**
+     * The agent's own calling number, self-reported (see
+     * backend/26_agent_contact_number.sql — Android can't reliably read a
+     * SIM's own number, so this is asked for once instead of guessed at
+     * per call). A plain PATCH, not an RPC: the column grant + "update
+     * own profile row" RLS policy already scope this to the caller's own
+     * row, the same mechanism full_name already relies on.
+     */
+    suspend fun saveContactNumber(number: String): Outcome<Profile> {
+        val uid = client.currentUserId ?: return Outcome.Err(SupabaseClient.SESSION_EXPIRED)
+        val body = buildJsonObject { put("contact_number", number) }.toString()
+        return when (val r = client.patch("profiles", "id=eq.$uid", body)) {
+            is Outcome.Err -> r
+            is Outcome.Ok -> runCatching { json.decodeFromString<List<Profile>>(r.value) }
+                .fold(
+                    { list ->
+                        list.firstOrNull()
+                            ?.let { Outcome.Ok(it) }
+                            ?: Outcome.Err("Could not read the updated profile.")
+                    },
+                    { Outcome.Err("Saved, but the updated profile could not be read: ${it.message}") }
+                )
+        }
+    }
+
+    /**
      * Leads currently held by this agent and still open — i.e. fresh claims
      * plus any callbacks they committed to. Ordered so overdue callbacks
      * surface first.

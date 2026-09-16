@@ -40,6 +40,11 @@ data class UiState(
     val queue: List<Lead> = emptyList(),
     val selected: Lead? = null,
 
+    // --- agent's own calling number, self-reported (backend/26_agent_contact_number.sql) ---
+    val showContactNumberDialog: Boolean = false,
+    val contactNumberInput: String = "",
+    val savingContactNumber: Boolean = false,
+
     // --- SIM selection ---
     val sims: List<SimOption> = emptyList(),
     val showSimPicker: Boolean = false,
@@ -261,7 +266,18 @@ class AppViewModel(
     private fun loadProfileAndQueue() {
         viewModelScope.launch {
             when (val p = repo.myProfile()) {
-                is Outcome.Ok -> _state.update { it.copy(profile = p.value) }
+                is Outcome.Ok -> _state.update {
+                    it.copy(
+                        profile = p.value,
+                        // Gentle, dismissible nudge — not a hard gate on
+                        // working the queue. Re-offered on every cold
+                        // start (i.e. every relaunch) until it's filled
+                        // in, since there's no other reliable way to
+                        // reach an agent who never opens the dialog on
+                        // their own — see backend/26_agent_contact_number.sql.
+                        showContactNumberDialog = it.showContactNumberDialog || p.value.contactNumber.isNullOrBlank()
+                    )
+                }
                 is Outcome.Err -> _state.update { it.copy(error = p.message) }
             }
             refreshQueue()
@@ -689,6 +705,44 @@ class AppViewModel(
                         info = "Details saved.",
                         selected = r.value,
                         queue = st.queue.map { q -> if (q.id == r.value.id) r.value else q }
+                    )
+                }
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // Agent's own calling number (backend/26_agent_contact_number.sql)
+    // -----------------------------------------------------------------
+
+    fun openContactNumberDialog() = _state.update {
+        it.copy(
+            showContactNumberDialog = true,
+            contactNumberInput = it.profile?.contactNumber.orEmpty(),
+            error = null
+        )
+    }
+
+    fun dismissContactNumberDialog() = _state.update { it.copy(showContactNumberDialog = false) }
+
+    fun setContactNumberInput(v: String) = _state.update { it.copy(contactNumberInput = v) }
+
+    fun saveContactNumber() {
+        val number = _state.value.contactNumberInput.trim()
+        if (number.isBlank()) {
+            _state.update { it.copy(error = "Enter your calling number.") }
+            return
+        }
+        _state.update { it.copy(savingContactNumber = true, error = null) }
+        viewModelScope.launch {
+            when (val r = repo.saveContactNumber(number)) {
+                is Outcome.Err -> _state.update { it.copy(savingContactNumber = false, error = r.message) }
+                is Outcome.Ok -> _state.update {
+                    it.copy(
+                        savingContactNumber = false,
+                        showContactNumberDialog = false,
+                        profile = r.value,
+                        info = "Calling number saved."
                     )
                 }
             }

@@ -223,6 +223,30 @@ class SupabaseClient(context: Context) {
                 .fold(onOk = { Outcome.Ok(it) }, onErr = { Outcome.Err(it) })
         }
 
+    /**
+     * PATCH against a PostgREST table, e.g. for a self-service column an
+     * agent is grant-permitted to update on their own row (see
+     * backend/05_fix_profile_privilege_escalation.sql and
+     * backend/26_agent_contact_number.sql) — RLS still scopes which rows
+     * this can touch, the same as [get].
+     */
+    suspend fun patch(table: String, query: String, bodyJson: String): Outcome<String> =
+        withContext(Dispatchers.IO) {
+            if (!ensureFreshToken()) return@withContext Outcome.Err(SESSION_EXPIRED)
+            val url = "$baseUrl/rest/v1/$table".toHttpUrl().newBuilder().apply {
+                query.split('&').filter { it.isNotBlank() }.forEach { pair ->
+                    val i = pair.indexOf('=')
+                    if (i > 0) addQueryParameter(pair.substring(0, i), pair.substring(i + 1))
+                }
+            }.build()
+
+            val req = authed(Request.Builder().url(url).patch(bodyJson.toRequestBody(JSON_MEDIA)))
+                .addHeader("Prefer", "return=representation")
+                .build()
+
+            execute(req).fold(onOk = { Outcome.Ok(it) }, onErr = { Outcome.Err(it) })
+        }
+
     /** POST to a Postgres function exposed at /rest/v1/rpc/{name}. */
     suspend fun rpc(name: String, bodyJson: String = "{}"): Outcome<String> =
         withContext(Dispatchers.IO) {

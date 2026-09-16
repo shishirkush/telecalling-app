@@ -6,6 +6,7 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,9 +26,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -36,10 +39,12 @@ import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -54,6 +59,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -72,7 +78,11 @@ fun LeadQueueScreen(
     onClaimNext: () -> Unit,
     onRefresh: () -> Unit,
     onSignOut: () -> Unit,
-    onSearch: () -> Unit
+    onSearch: () -> Unit,
+    onEditContactNumber: () -> Unit,
+    onDismissContactNumberDialog: () -> Unit,
+    onContactNumberInputChange: (String) -> Unit,
+    onSaveContactNumber: () -> Unit
 ) {
     // Split, not two separate queries: myQueue() already returns every open
     // assigned lead in one call, so this is just "which half are we looking
@@ -103,6 +113,9 @@ fun LeadQueueScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = onEditContactNumber) {
+                        Icon(Icons.Filled.Phone, contentDescription = "My calling number")
+                    }
                     IconButton(onClick = onSearch) {
                         Icon(Icons.Filled.Search, contentDescription = "Search customer")
                     }
@@ -249,6 +262,71 @@ fun LeadQueueScreen(
             }
         }
     }
+
+    if (state.showContactNumberDialog) {
+        ContactNumberDialog(
+            value = state.contactNumberInput,
+            saving = state.savingContactNumber,
+            error = state.error,
+            onValueChange = onContactNumberInputChange,
+            onSave = onSaveContactNumber,
+            onDismiss = onDismissContactNumberDialog
+        )
+    }
+}
+
+/**
+ * One reliable fact per agent rather than a per-call auto-detect —
+ * Android can't dependably read a SIM's own number (many Indian
+ * carriers/prepaid SIMs never expose it), so this asks once instead.
+ * See backend/26_agent_contact_number.sql. Dismissible, not a hard gate
+ * on working the queue — [AppViewModel] re-offers it on the next
+ * relaunch if it's still blank.
+ */
+@Composable
+private fun ContactNumberDialog(
+    value: String,
+    saving: Boolean,
+    error: String?,
+    onValueChange: (String) -> Unit,
+    onSave: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("My calling number") },
+        text = {
+            Column {
+                Text(
+                    "The number you call customers from, so your supervisor can " +
+                        "reach you or trace a call back to you.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = value,
+                    onValueChange = onValueChange,
+                    label = { Text("Your mobile number") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (error != null) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onSave, enabled = !saving) {
+                Text(if (saving) "Saving…" else "Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !saving) { Text("Later") }
+        }
+    )
 }
 
 @Composable

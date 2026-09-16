@@ -114,6 +114,7 @@ data class Profile(
     val id: String,
     @SerialName("full_name") val fullName: String? = null,
     @SerialName("login_id")  val loginId: String? = null,
+    @SerialName("contact_number") val contactNumber: String? = null,
     val role: String = "agent",
     val active: Boolean = true
 ) {
