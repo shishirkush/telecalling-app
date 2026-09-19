@@ -14,9 +14,6 @@ import com.telecall.app.data.LeadQuality
 import com.telecall.app.data.LeadRepository
 import com.telecall.app.data.Outcome
 import com.telecall.app.data.Profile
-import com.telecall.app.update.UpdateChecker
-import com.telecall.app.update.UpdateInfo
-import com.telecall.app.update.UpdateInstaller
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -72,10 +69,6 @@ data class UiState(
     val editIncome: String = "",
     val editAddress: String = "",
 
-    // --- app update, checked once per cold launch ---
-    val updateInfo: UpdateInfo? = null,
-    val updateDownloading: Boolean = false,
-
     // --- whole-database customer search, by mobile or PAN only ---
     val searchQuery: String = "",
     val searching: Boolean = false,
@@ -119,8 +112,6 @@ class AppViewModel(
 ) : AndroidViewModel(app) {
 
     private val simManager = SimManager(app.applicationContext)
-    private val updateChecker = UpdateChecker()
-    private val updateInstaller = UpdateInstaller(app.applicationContext)
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -146,40 +137,10 @@ class AppViewModel(
                     runCatching { repo.logSmsOutcome(leadId, mobile, outcome) }
                 }
             }
-            checkForUpdate()
         } else {
             _state.update { it.copy(screen = Screen.UNSUPPORTED_DEVICE) }
         }
     }
-
-    /**
-     * Once per cold launch, before or after sign-in — the banner it feeds
-     * is shown over every screen, see MainActivity. A failed or negative
-     * check just leaves [UiState.updateInfo] null; there is no error state
-     * here on purpose, an unreachable GitHub must never look like an app
-     * problem to the agent.
-     */
-    private fun checkForUpdate() {
-        viewModelScope.launch {
-            val info = updateChecker.checkForUpdate()
-            if (info != null) _state.update { it.copy(updateInfo = info) }
-        }
-    }
-
-    /**
-     * Downloads the release APK and hands it to the system installer.
-     * updateDownloading only disables the banner's button for this session
-     * — it does not track real download progress, which already has its
-     * own system notification via DownloadManager.
-     */
-    fun startUpdate() {
-        val info = _state.value.updateInfo ?: return
-        _state.update { it.copy(updateDownloading = true) }
-        updateInstaller.downloadAndInstall(info)
-    }
-
-    /** Hides the banner for the rest of this app session, not permanently. */
-    fun dismissUpdateBanner() = _state.update { it.copy(updateInfo = null) }
 
     // -----------------------------------------------------------------
     // Auth
@@ -195,6 +156,11 @@ class AppViewModel(
             when (val r = repo.signIn(loginId, password)) {
                 is Outcome.Err -> _state.update { it.copy(loading = false, error = r.message) }
                 is Outcome.Ok -> {
+                    // Claims this device as "current" for the login before
+                    // anything else loads — see backend/27_single_session_
+                    // per_agent.sql. A fresh sign-in, unlike the cold-start
+                    // resume path below, always means claim a new token.
+                    repo.claimSession()
                     _state.update { it.copy(loading = false, screen = Screen.QUEUE) }
                     loadProfileAndQueue()
                 }
@@ -214,6 +180,23 @@ class AppViewModel(
             repo.clearPendingCall()
             _state.value = UiState(screen = Screen.LOGIN)
         }
+    }
+
+    /**
+     * Called from inside loadProfileAndQueue()'s own coroutine, not its own
+     * launch — that call site already decided this device lost the single-
+     * session check (see repo.sessionWasReplaced) and is mid-load, so this
+     * just finishes the same cleanup signOut() does, with a message
+     * explaining why the agent landed back on Login unprompted.
+     */
+    private suspend fun signOutReplaced() {
+        runCatching { repo.logLoginEvent("logout") }
+        repo.signOut()
+        repo.clearPendingCall()
+        _state.value = UiState(
+            screen = Screen.LOGIN,
+            error = "You were signed out because this login was used to sign in on another device."
+        )
     }
 
     // -----------------------------------------------------------------
@@ -266,17 +249,29 @@ class AppViewModel(
     private fun loadProfileAndQueue() {
         viewModelScope.launch {
             when (val p = repo.myProfile()) {
-                is Outcome.Ok -> _state.update {
-                    it.copy(
-                        profile = p.value,
-                        // Gentle, dismissible nudge — not a hard gate on
-                        // working the queue. Re-offered on every cold
-                        // start (i.e. every relaunch) until it's filled
-                        // in, since there's no other reliable way to
-                        // reach an agent who never opens the dialog on
-                        // their own — see backend/26_agent_contact_number.sql.
-                        showContactNumberDialog = it.showContactNumberDialog || p.value.contactNumber.isNullOrBlank()
-                    )
+                is Outcome.Ok -> {
+                    // Someone signed into this same login on another device
+                    // since this one last claimed a session — see
+                    // backend/27_single_session_per_agent.sql. Caught here
+                    // rather than enforced server-side on every table, so
+                    // this is a clean sign-out on the next open/resume, not
+                    // a request failing mid-call.
+                    if (repo.sessionWasReplaced(p.value.activeSessionToken)) {
+                        signOutReplaced()
+                        return@launch
+                    }
+                    _state.update {
+                        it.copy(
+                            profile = p.value,
+                            // Gentle, dismissible nudge — not a hard gate on
+                            // working the queue. Re-offered on every cold
+                            // start (i.e. every relaunch) until it's filled
+                            // in, since there's no other reliable way to
+                            // reach an agent who never opens the dialog on
+                            // their own — see backend/26_agent_contact_number.sql.
+                            showContactNumberDialog = it.showContactNumberDialog || p.value.contactNumber.isNullOrBlank()
+                        )
+                    }
                 }
                 is Outcome.Err -> _state.update { it.copy(error = p.message) }
             }

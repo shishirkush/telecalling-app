@@ -92,6 +92,22 @@ fun formatMobile(raw: String): String {
 }
 
 /**
+ * "9876543210" -> "919876543210" for wa.me, which needs full international
+ * digits with no "+", spaces or leading zero. Leads are entered as bare
+ * 10-digit Indian numbers (same assumption formatMobile above makes); a
+ * number already carrying a country code is left alone rather than
+ * double-prefixed.
+ */
+fun waNumber(raw: String): String {
+    val digits = raw.filter { it.isDigit() }
+    return when {
+        digits.length == 10 -> "91$digits"
+        digits.length == 11 && digits.startsWith("0") -> "91${digits.drop(1)}"
+        else -> digits
+    }
+}
+
+/**
  * Masking is controlled by the MASK_SENSITIVE build flag. It is currently
  * false — agents see full PAN, DOB, income and credit limit. Flipping the
  * flag in app/build.gradle.kts turns masking on everywhere at once.

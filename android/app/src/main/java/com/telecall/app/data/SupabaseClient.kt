@@ -85,7 +85,28 @@ class SupabaseClient(context: Context) {
         }.apply()
     }
 
-    fun signOut() = persist(null)
+    fun signOut() {
+        persist(null)
+        localSessionToken = null
+    }
+
+    // -----------------------------------------------------------------
+    // Single-session enforcement (backend/27_single_session_per_agent.sql)
+    // -----------------------------------------------------------------
+
+    /**
+     * This device's copy of the token claim_session() last handed it.
+     * Null until a fresh sign-in on this device claims one — an already
+     * persisted session from before this feature shipped is left alone
+     * rather than treated as "replaced" the first time it resumes.
+     */
+    var localSessionToken: String?
+        get() = prefs.getString(KEY_SESSION_TOKEN, null)
+        set(value) {
+            prefs.edit().apply {
+                if (value == null) remove(KEY_SESSION_TOKEN) else putString(KEY_SESSION_TOKEN, value)
+            }.apply()
+        }
 
     // -----------------------------------------------------------------
     // Pending call (survives a process kill — see PendingCall's kdoc)
@@ -313,6 +334,7 @@ class SupabaseClient(context: Context) {
     companion object {
         private const val KEY_SESSION = "session_json"
         private const val KEY_PENDING_CALL = "pending_call_json"
+        private const val KEY_SESSION_TOKEN = "active_session_token"
         const val SESSION_EXPIRED = "Your session expired. Please sign in again."
         private val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
     }

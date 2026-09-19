@@ -49,6 +49,39 @@ class LeadRepository(private val client: SupabaseClient) {
     fun signOut() = client.signOut()
 
     /**
+     * Stamps a fresh active_session_token onto this agent's profile and
+     * remembers it locally — see backend/27_single_session_per_agent.sql.
+     * Called right after a fresh sign-in, never on a cold-start resume of
+     * an already-persisted session: claiming again there would flip which
+     * device is "current" just because it happened to be opened last,
+     * instead of because the agent actually signed in again.
+     *
+     * Best-effort by design: the caller ignores failure here rather than
+     * blocking sign-in on it. Worst case, this device isn't correctly
+     * tracked as the current one for a moment, no worse than before this
+     * feature existed.
+     */
+    suspend fun claimSession() {
+        when (val r = client.rpc("claim_session")) {
+            is Outcome.Ok -> client.localSessionToken = r.value.trim('"')
+            is Outcome.Err -> Unit
+        }
+    }
+
+    /**
+     * True when this device previously claimed a session and the profile
+     * now carries a different token — i.e. some other device has since
+     * signed into this same login and claimed it instead. False (never
+     * "replaced") until this device has claimed a token of its own, so a
+     * session that predates this feature keeps working until its next
+     * real sign-in.
+     */
+    fun sessionWasReplaced(serverToken: String?): Boolean {
+        val local = client.localSessionToken ?: return false
+        return serverToken != null && serverToken != local
+    }
+
+    /**
      * Local-only bookkeeping so a process kill right after the agent taps
      * Call doesn't silently lose the lead they were on — see PendingCall's
      * kdoc and AppViewModel.resumePendingCallOrLoadQueue. Never touches
@@ -264,8 +297,8 @@ class LeadRepository(private val client: SupabaseClient) {
     }
 
     /**
-     * Once per cold launch (alongside update.UpdateChecker's own check),
-     * so "which agents are on which build" is a direct query instead of
+     * Once per cold launch, so "which agents are on which build" is a
+     * direct query instead of
      * inferred from unrelated activity. Fire-and-forget, same reasoning
      * as [logLeadView] and [logSmsOutcome]. Retried (see [retryRpc]).
      *

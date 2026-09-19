@@ -18,7 +18,7 @@ fun prop(key: String, fallback: String = ""): String =
 
 android {
     namespace = "com.telecall.app"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         // Play package name — "ans" is the company's name, distinct from
@@ -28,16 +28,14 @@ android {
         // without renaming every source file's package declaration.
         applicationId = "ans.telecall.app"
         minSdk = 24
-        targetSdk = 35
+        targetSdk = 36
         // Bump BOTH on every release, matching the git tag (without the
-        // "v"). update.UpdateChecker compares BuildConfig.VERSION_NAME
-        // against the latest GitHub release tag to decide whether to show
-        // the update banner — every earlier release (through v1.6.0)
-        // shipped with this stuck at 1.0.0/1, so nothing could ever have
-        // told an installed app it was behind. versionCode just needs to
-        // keep increasing; it isn't otherwise compared to anything.
-        versionCode = 27
-        versionName = "1.10.3"
+        // "v"). versionCode must strictly increase — Play Console
+        // permanently consumes a version code the moment a bundle using it
+        // is uploaded, even to a draft/closed-testing release, so it can
+        // never be reused even if that bundle is later removed.
+        versionCode = 30
+        versionName = "1.10.5"
 
         buildConfigField("String", "SUPABASE_URL",      "\"${prop("SUPABASE_URL")}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${prop("SUPABASE_ANON_KEY")}\"")

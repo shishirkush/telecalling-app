@@ -44,16 +44,20 @@
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
     <!--
-      REQUEST_INSTALL_PACKAGES: this app is sideloaded (not Play-distributed),
-      so update.UpdateInstaller is the only update mechanism there is — it
-      downloads the release APK and hands it to the system installer.
-      Declaring this does not skip the OS's own "Install unknown apps" gate;
-      it only lets the app *offer* the install screen instead of the agent
-      needing to find a browser and their Downloads folder themselves. The
-      agent still has to tap through it, same as SEND_SMS or exact alarms
-      above — Android decides that, not this app.
+      Before opening WhatsApp for a lead, ContactSaver saves that lead into
+      the phone's own Contacts as "<First name> - TC" (or "<mobile> - TC"
+      when the CRM has no name yet) so the agent can tell a Telecalling
+      lead apart from their own contacts in WhatsApp's chat list, which
+      otherwise only shows a saved name or a bare number.
+        READ_CONTACTS : look the number up first, so a lead already saved
+                        (by this feature or by the agent themselves) is
+                        never turned into a duplicate contact.
+        WRITE_CONTACTS: create that contact when it isn't found.
+      Denial degrades gracefully — WhatsApp still opens to the right
+      number either way, it just won't show a friendly name yet.
     -->
-    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <uses-permission android:name="android.permission.WRITE_CONTACTS" />
 
     <uses-feature android:name="android.hardware.telephony" android:required="true" />
 
@@ -100,19 +104,6 @@
         <receiver
             android:name=".call.CallbackAlarmReceiver"
             android:exported="false" />
-
-        <!-- Lets UpdateInstaller hand the downloaded APK's content:// URI to
-             the system package installer without exposing app-private
-             storage as a whole. -->
-        <provider
-            android:name="androidx.core.content.FileProvider"
-            android:authorities="${applicationId}.fileprovider"
-            android:exported="false"
-            android:grantUriPermissions="true">
-            <meta-data
-                android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/file_paths" />
-        </provider>
 
     </application>
 

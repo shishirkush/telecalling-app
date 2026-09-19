@@ -116,7 +116,12 @@ data class Profile(
     @SerialName("login_id")  val loginId: String? = null,
     @SerialName("contact_number") val contactNumber: String? = null,
     val role: String = "agent",
-    val active: Boolean = true
+    val active: Boolean = true,
+    // Set by claim_session() (backend/27_single_session_per_agent.sql) at
+    // sign-in — compared against SupabaseClient's local copy on every cold
+    // start/resume so a login claimed on a second device signs this one
+    // out instead of letting both run at once.
+    @SerialName("active_session_token") val activeSessionToken: String? = null
 ) {
     val isSupervisor: Boolean get() = role == "supervisor"
 }
