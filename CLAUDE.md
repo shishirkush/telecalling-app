@@ -380,7 +380,7 @@ visibility) or the intent silently fails to resolve on some OEM builds.
 **Every call attempt also texts the Apply Card link, transparently.**
 `SimManager.sendApplyCardSms()` fires right after `placeCall()` inside
 `AppViewModel.dial()`, sending `"Apply for the best Credit Card,
-www.cardadda.in"` to the same number being called, on the same SIM
+cardadda.in/sms"` to the same number being called, on the same SIM
 when one was chosen. `SEND_SMS` is requested in the same permission
 array as `CALL_PHONE`/`READ_PHONE_STATE` (`LeadDetailScreen`'s
 `callPerms`), so it's one system prompt, not two. **This was a

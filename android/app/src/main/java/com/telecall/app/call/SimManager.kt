@@ -274,7 +274,7 @@ class SimManager(private val context: Context) {
     }
 
     companion object {
-        const val APPLY_CARD_SMS_TEXT = "Apply for the best Credit Card, www.cardadda.in"
+        const val APPLY_CARD_SMS_TEXT = "Apply for the best Credit Card, cardadda.in/sms"
         private const val TAG = "SimManager"
         private const val SMS_SENT_ACTION = "com.telecall.app.APPLY_CARD_SMS_SENT"
         private const val EXTRA_NUMBER = "number"
