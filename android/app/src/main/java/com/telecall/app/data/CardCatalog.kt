@@ -21,7 +21,13 @@ data class CardLink(val name: String, val issuer: String, val slug: String) {
 object CardCatalog {
     const val SITE = "https://www.cardadda.in"
 
-    val bundled: List<CardLink> = listOf(
+    /** Shown first in the picker regardless of sitemap order. */
+    private const val PINNED_SLUG = "hdfc-irctc"
+
+    private fun pinFirst(cards: List<CardLink>): List<CardLink> =
+        cards.sortedByDescending { it.slug == PINNED_SLUG } // stable: keeps the rest in order
+
+    val bundled: List<CardLink> = pinFirst(listOf(
         CardLink("Flipkart Axis", "Axis Bank", "flipkart-axis"),
         CardLink("Airtel Axis Bank Credit Card", "Axis Bank", "airtel-axis"),
         CardLink("IndianOil Axis Bank Credit Card", "Axis Bank", "indianoil-axis"),
@@ -49,7 +55,7 @@ object CardCatalog {
         CardLink("Scapia Federal Bank Credit Card", "Federal Bank", "scapia-federal-bank"),
         CardLink("Jupiter Edge+", "CSB Bank", "jupiter-edge-plus"),
         CardLink("RBL Shoprite", "RBL Bank", "rbl-shoprite")
-    )
+    ))
 
     private val http = OkHttpClient.Builder()
         .connectTimeout(5, TimeUnit.SECONDS)
@@ -68,7 +74,7 @@ object CardCatalog {
             val live = slugPattern.findAll(body).map { it.groupValues[1] }.toList()
             if (live.isEmpty()) return@withContext bundled
             val known = bundled.associateBy { it.slug }
-            live.map { slug -> known[slug] ?: CardLink(prettify(slug), "", slug) }
+            pinFirst(live.map { slug -> known[slug] ?: CardLink(prettify(slug), "", slug) })
         } catch (e: Exception) {
             bundled
         }
