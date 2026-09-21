@@ -126,6 +126,7 @@ class AppViewModel(
             if (repo.isSignedIn) {
                 _state.update { it.copy(screen = Screen.QUEUE) }
                 resumePendingCallOrLoadQueue()
+                launchLoginLog("app_opened")
             }
             // Agents are remote — this is the only way to see a real-device SMS
             // failure (permission denied, no service, radio off) without ever
@@ -163,7 +164,17 @@ class AppViewModel(
                     repo.claimSession()
                     _state.update { it.copy(loading = false, screen = Screen.QUEUE) }
                     loadProfileAndQueue()
+                    // A real password sign-in — the only thing "login" means.
+                    launchLoginLog("login")
                 }
+            }
+        }
+    }
+
+    private fun launchLoginLog(event: String) {
+        viewModelScope.launch {
+            runCatching {
+                if (event == "app_opened") repo.logAppOpenedIfDue() else repo.logLoginEvent(event)
             }
         }
     }
@@ -293,17 +304,12 @@ class AppViewModel(
             )
             runCatching { repo.reportAppVersion(BuildConfig.VERSION_NAME, device, androidId) }
         }
-        // Same "once per sign-in-backed launch" as the version report right
-        // above — deliberately NOT scoped to a fresh credential sign-in
-        // only. Most agents sign in once and stay signed in for days, so
-        // scoping this to signIn() left the Login Activity page almost
-        // permanently empty: real agents' sessions predate whichever
-        // build first shipped this, and a persisted session never re-hits
-        // signIn() again. Logging every app-active moment (cold start with
-        // a valid session, or a fresh sign-in) means more rows on a day
-        // with several relaunches, but that is still a real, useful
-        // presence signal — the alternative was consistently zero data.
-        viewModelScope.launch { runCatching { repo.logLoginEvent("login") } }
+        // No login-log row here any more: "login" is written by signIn() for
+        // a real password sign-in, and a relaunch with a saved session is
+        // logged as a throttled "app_opened" from init — see
+        // LeadRepository.logAppOpenedIfDue() and backend/28. Logging every
+        // launch as "login" made Android's process kills during calls look
+        // like the agent signing in over and over.
     }
 
     fun refreshQueue() {

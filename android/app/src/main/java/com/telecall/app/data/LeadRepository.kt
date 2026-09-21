@@ -322,13 +322,28 @@ class LeadRepository(private val client: SupabaseClient) {
      * than truly fire-and-forget on that path (see AppViewModel.signOut).
      */
     suspend fun logLoginEvent(event: String, platform: String = "android") {
-        retryRpc(
+        val r = retryRpc(
             "log_login_event",
             buildJsonObject {
                 put("p_event", event)
                 put("p_platform", platform)
             }.toString()
         )
+        // Only a recorded event moves the throttle clock, so a failed call
+        // doesn't suppress the next app_opened attempt.
+        if (r is Outcome.Ok) client.lastLoginLogAt = System.currentTimeMillis()
+    }
+
+    /**
+     * Cold start with an existing session. "login" is reserved for a real
+     * password sign-in; a relaunch — including one Android forced by
+     * killing the app during a call — is logged as "app_opened", and only
+     * if at least [APP_OPENED_MIN_GAP_MS] has passed since this device's
+     * last logged event, so a day of restarts stays a handful of rows.
+     */
+    suspend fun logAppOpenedIfDue() {
+        if (System.currentTimeMillis() - client.lastLoginLogAt < APP_OPENED_MIN_GAP_MS) return
+        logLoginEvent("app_opened")
     }
 
     suspend fun reportAppVersion(version: String, deviceModel: String, deviceId: String?) {
@@ -362,3 +377,6 @@ class LeadRepository(private val client: SupabaseClient) {
         }
     }
 }
+
+/** Minimum spacing between two "app_opened" login-log rows from one device. */
+private const val APP_OPENED_MIN_GAP_MS = 30 * 60 * 1000L

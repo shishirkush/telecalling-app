@@ -108,6 +108,15 @@ class SupabaseClient(context: Context) {
             }.apply()
         }
 
+    /**
+     * When this device last got a login-log event (login, logout or
+     * app_opened) recorded — the reference point for the 30-minute
+     * throttle on "app_opened". See LeadRepository.logAppOpenedIfDue().
+     */
+    var lastLoginLogAt: Long
+        get() = prefs.getLong(KEY_LAST_LOGIN_LOG_AT, 0L)
+        set(value) { prefs.edit().putLong(KEY_LAST_LOGIN_LOG_AT, value).apply() }
+
     // -----------------------------------------------------------------
     // Pending call (survives a process kill — see PendingCall's kdoc)
     // -----------------------------------------------------------------
@@ -335,6 +344,7 @@ class SupabaseClient(context: Context) {
         private const val KEY_SESSION = "session_json"
         private const val KEY_PENDING_CALL = "pending_call_json"
         private const val KEY_SESSION_TOKEN = "active_session_token"
+        private const val KEY_LAST_LOGIN_LOG_AT = "last_login_log_at"
         const val SESSION_EXPIRED = "Your session expired. Please sign in again."
         private val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
     }
