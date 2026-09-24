@@ -3,6 +3,7 @@ package com.telecall.app
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Box
@@ -72,6 +73,12 @@ class MainActivity : ComponentActivity() {
                                 // Defensive: never mutate state during composition.
                                 LaunchedEffect(Unit) { viewModel.backToQueue() }
                             } else {
+                                // Covers the system back gesture/button too, not just
+                                // the in-app arrow — both route through the same
+                                // guarded backToQueue(), which refuses to leave (and
+                                // surfaces state.error instead) while this lead has
+                                // been called but has no saved outcome yet.
+                                BackHandler { viewModel.backToQueue() }
                                 LeadDetailScreen(
                                     state = state,
                                     lead = lead,
@@ -83,7 +90,7 @@ class MainActivity : ComponentActivity() {
                                     onQuality = viewModel::setQuality,
                                     onRemarks = viewModel::setRemarks,
                                     onCallbackAt = viewModel::setCallbackAt,
-                                    onSave = { viewModel.saveDisposition { viewModel.backToQueue() } },
+                                    onSave = { viewModel.saveDisposition { viewModel.backToQueue(afterSave = true) } },
                                     onStartEdit = viewModel::startEditingDetails,
                                     onCancelEdit = viewModel::cancelEditingDetails,
                                     onEditName = viewModel::onEditName,

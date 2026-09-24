@@ -372,6 +372,16 @@ class AppViewModel(
     // -----------------------------------------------------------------
 
     fun openLead(lead: Lead) {
+        // A tapped callback-reminder notification reaches this too (via
+        // openLeadById below) and can fire at any moment, including mid-way
+        // through a different lead that's been called but not yet saved —
+        // the one path backToQueue()'s own guard doesn't cover, since it
+        // never goes through backToQueue at all. Re-opening the same lead
+        // (id match) is left alone rather than treated as switching away.
+        if (blockedByUnsavedCall() && _state.value.selected?.id != lead.id) {
+            _state.update { it.copy(error = "Save this lead's outcome before opening another lead.") }
+            return
+        }
         _state.update {
             it.copy(
                 screen = Screen.DETAIL,
@@ -413,7 +423,29 @@ class AppViewModel(
         }
     }
 
-    fun backToQueue() {
+    /**
+     * True once a call has been placed for the currently open lead but no
+     * outcome has been saved for it yet — an agent could otherwise view a
+     * customer's full details, call them, and walk away with nothing on
+     * record for what they saw or said. Checked before leaving this lead
+     * any way other than actually saving a disposition for it.
+     */
+    private fun blockedByUnsavedCall(): Boolean =
+        _state.value.screen == Screen.DETAIL && _state.value.hasCalledThisLead
+
+    /**
+     * @param afterSave true only for the one call site that runs right
+     * after [saveDisposition] itself confirms success — the sole
+     * legitimate way to leave a called lead without the block below
+     * firing, since hasCalledThisLead isn't cleared until this function
+     * runs. Every other caller (the back button, the system back
+     * gesture, the defensive no-selected-lead fallback) leaves it false.
+     */
+    fun backToQueue(afterSave: Boolean = false) {
+        if (!afterSave && blockedByUnsavedCall()) {
+            _state.update { it.copy(error = "Save this lead's outcome before leaving — a call needs a result on record.") }
+            return
+        }
         // A deliberate exit, not a crash — the lead stays assigned and
         // reopenable from the queue, but must not force-resume into it on
         // some future cold start the agent never asked for.
