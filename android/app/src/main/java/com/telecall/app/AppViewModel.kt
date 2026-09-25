@@ -398,8 +398,52 @@ class AppViewModel(
             )
         }
         repo.savePendingCall(lead.id, hasCalled = false, confirmedAt = null)
-        // Audit trail — the agent is about to see unmasked PAN / DOB / income.
-        viewModelScope.launch { repo.logLeadView(lead.id) }
+        // The queue card that triggered this can be stale — another device
+        // or an earlier action may have already disposed this same lead.
+        // Re-check before the agent invests a call and a filled-out form
+        // into a lead that silently isn't theirs anymore (see
+        // bounceStaleLead()).
+        viewModelScope.launch {
+            val fresh = repo.getLead(lead.id)
+            if (_state.value.selected?.id != lead.id) return@launch
+            val stillMine = (fresh as? Outcome.Ok)?.value?.assignedTo == repo.currentUserId
+            if (!stillMine) {
+                bounceStaleLead()
+                return@launch
+            }
+            // Audit trail — the agent is about to see unmasked PAN / DOB / income.
+            repo.logLeadView(lead.id)
+        }
+    }
+
+    /**
+     * log_call_attempt(), save_disposition(), and save_lead_details() all
+     * raise this exact text when the lead they're pointed at isn't (or no
+     * longer is) assigned to the caller — stale local state is the normal
+     * way to hit it (a queue card from before a refresh, another device
+     * that already disposed the same lead), not a real data problem.
+     */
+    private fun isNotAssignedError(message: String): Boolean =
+        message.contains("is not assigned to you")
+
+    /**
+     * Leaves the unsaved-call guard alone on purpose: the lead genuinely
+     * isn't the agent's to finish anymore, so there is nothing left here
+     * for that guard to protect.
+     */
+    private fun bounceStaleLead() {
+        repo.clearPendingCall()
+        _state.update {
+            it.copy(
+                screen = Screen.QUEUE,
+                selected = null,
+                showSimPicker = false,
+                saving = false,
+                error = null,
+                info = "That lead was already handled elsewhere. Refreshed your queue."
+            )
+        }
+        refreshQueue()
     }
 
     /**
@@ -578,18 +622,24 @@ class AppViewModel(
         val leadId = _state.value.selected?.id
         if (reachedOut && leadId != null) {
             viewModelScope.launch {
-                if (repo.logCallAttempt(leadId) is Outcome.Ok) {
-                    val confirmedAt = System.currentTimeMillis()
-                    _state.update { it.copy(hasCalledThisLead = true, callAttemptConfirmedAt = confirmedAt) }
-                    repo.savePendingCall(leadId, hasCalled = true, confirmedAt = confirmedAt)
-                    // canSave/callDwellSecondsRemaining are computed from
-                    // wall-clock time, so nothing re-evaluates them once
-                    // the countdown starts unless something else emits a
-                    // new state — this no-op update is that: it exists
-                    // purely to make Compose recompose and notice the
-                    // 30s floor has now passed, re-enabling Save.
-                    delay(UiState.MIN_CALL_DWELL_MS)
-                    _state.update { it }
+                when (val r = repo.logCallAttempt(leadId)) {
+                    is Outcome.Err -> {
+                        if (isNotAssignedError(r.message)) bounceStaleLead()
+                        else _state.update { it.copy(error = r.message) }
+                    }
+                    is Outcome.Ok -> {
+                        val confirmedAt = System.currentTimeMillis()
+                        _state.update { it.copy(hasCalledThisLead = true, callAttemptConfirmedAt = confirmedAt) }
+                        repo.savePendingCall(leadId, hasCalled = true, confirmedAt = confirmedAt)
+                        // canSave/callDwellSecondsRemaining are computed from
+                        // wall-clock time, so nothing re-evaluates them once
+                        // the countdown starts unless something else emits a
+                        // new state — this no-op update is that: it exists
+                        // purely to make Compose recompose and notice the
+                        // 30s floor has now passed, re-enabling Save.
+                        delay(UiState.MIN_CALL_DWELL_MS)
+                        _state.update { it }
+                    }
                 }
             }
         }
@@ -648,7 +698,10 @@ class AppViewModel(
                 simSlot = s.calledOnSimSlot
             )
             when (r) {
-                is Outcome.Err -> _state.update { it.copy(saving = false, error = r.message) }
+                is Outcome.Err -> {
+                    if (isNotAssignedError(r.message)) bounceStaleLead()
+                    else _state.update { it.copy(saving = false, error = r.message) }
+                }
                 is Outcome.Ok -> {
                     _state.update { it.copy(saving = false, info = "Saved.") }
                     repo.clearPendingCall()
@@ -728,7 +781,10 @@ class AppViewModel(
                 annualIncomeRange = s.editIncome,
                 address = s.editAddress
             )) {
-                is Outcome.Err -> _state.update { it.copy(saving = false, error = r.message) }
+                is Outcome.Err -> {
+                    if (isNotAssignedError(r.message)) bounceStaleLead()
+                    else _state.update { it.copy(saving = false, error = r.message) }
+                }
                 is Outcome.Ok -> _state.update { st ->
                     // Replace the record in the queue too, so going back does
                     // not show the old details.
