@@ -132,12 +132,18 @@ Deno.serve(async (req) => {
 
   const { error: deleteErr } = await admin.auth.admin.deleteUser(agentId);
 
+  // GoTrue wraps the underlying Postgres error in a generic "Database
+  // error deleting user" — it does not pass through the actual "foreign
+  // key constraint" text, so matching on that specific wording never
+  // fires (confirmed live: that's the exact message this returned).
+  // Everything above already ruled out every other failure mode (missing
+  // agent, wrong role, still active, lead release itself failing), so at
+  // this point any error here is the FK constraint from real history —
+  // treat it as that rather than trying to keep guessing GoTrue's wording.
   if (deleteErr) {
-    const hasHistory = /foreign key|constraint|referenced/i.test(deleteErr.message);
-    const msg = hasHistory
-      ? `"${targetProfile.login_id}" has call history and cannot be permanently deleted — archive them instead.`
-      : deleteErr.message;
-    return json({ error: msg }, 400);
+    return json({
+      error: `"${targetProfile.login_id}" has call history and cannot be permanently deleted — archive them instead.`,
+    }, 400);
   }
 
   return json({ ok: true, login_id: targetProfile.login_id });
