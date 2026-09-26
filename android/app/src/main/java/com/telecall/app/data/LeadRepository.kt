@@ -108,6 +108,29 @@ class LeadRepository(private val client: SupabaseClient) {
         }
     }
 
+    /** Every active campaign an agent may pick (backend/32_campaigns.sql). */
+    suspend fun getCampaigns(): Outcome<List<Campaign>> =
+        when (val r = client.get("campaigns", "is_active=eq.true&select=*&order=name")) {
+            is Outcome.Err -> r
+            is Outcome.Ok -> runCatching { json.decodeFromString<List<Campaign>>(r.value) }
+                .fold({ Outcome.Ok(it) }, { Outcome.Err("Could not read the campaign list: ${it.message}") })
+        }
+
+    /**
+     * The only way profiles.current_campaign_id ever changes — never a
+     * plain PATCH, since there is no client grant on that column. Refuses
+     * if the agent has a called-but-undisposed lead (same check
+     * claim_next_lead() enforces) and releases every other open lead back
+     * to the pool on success — see backend/32_campaigns.sql.
+     */
+    suspend fun switchCampaign(campaignId: Long?): Outcome<Unit> {
+        val body = buildJsonObject { put("p_campaign_id", campaignId) }.toString()
+        return when (val r = client.rpc("switch_campaign", body)) {
+            is Outcome.Err -> r
+            is Outcome.Ok -> Outcome.Ok(Unit)
+        }
+    }
+
     /**
      * The agent's own calling number, self-reported (see
      * backend/26_agent_contact_number.sql — Android can't reliably read a

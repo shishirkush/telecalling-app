@@ -121,10 +121,21 @@ data class Profile(
     // sign-in — compared against SupabaseClient's local copy on every cold
     // start/resume so a login claimed on a second device signs this one
     // out instead of letting both run at once.
-    @SerialName("active_session_token") val activeSessionToken: String? = null
+    @SerialName("active_session_token") val activeSessionToken: String? = null,
+    // Which campaign this agent is currently working (backend/32_campaigns.sql)
+    // — null until they pick one. Only ever changes through switch_campaign();
+    // there is no client grant to write this column directly.
+    @SerialName("current_campaign_id") val currentCampaignId: Long? = null
 ) {
     val isSupervisor: Boolean get() = role == "supervisor"
 }
+
+@Serializable
+data class Campaign(
+    val id: Long,
+    val name: String,
+    @SerialName("is_active") val isActive: Boolean = true
+)
 
 /** Error surface for the UI layer. */
 sealed class Outcome<out T> {

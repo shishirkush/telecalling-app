@@ -26,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
@@ -82,7 +83,8 @@ fun LeadQueueScreen(
     onEditContactNumber: () -> Unit,
     onDismissContactNumberDialog: () -> Unit,
     onContactNumberInputChange: (String) -> Unit,
-    onSaveContactNumber: () -> Unit
+    onSaveContactNumber: () -> Unit,
+    onSwitchCampaign: () -> Unit
 ) {
     // Split, not two separate queries: myQueue() already returns every open
     // assigned lead in one call, so this is just "which half are we looking
@@ -118,6 +120,9 @@ fun LeadQueueScreen(
                     }
                     IconButton(onClick = onSearch) {
                         Icon(Icons.Filled.Search, contentDescription = "Search customer")
+                    }
+                    IconButton(onClick = onSwitchCampaign) {
+                        Icon(Icons.Filled.Folder, contentDescription = "Switch campaign")
                     }
                     IconButton(onClick = onRefresh) {
                         Icon(Icons.Filled.Refresh, contentDescription = "Refresh")

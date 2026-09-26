@@ -12,6 +12,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import com.telecall.app.ui.CampaignScreen
 import com.telecall.app.ui.LeadDetailScreen
 import com.telecall.app.ui.LeadQueueScreen
 import com.telecall.app.ui.LoginScreen
@@ -55,7 +56,15 @@ class MainActivity : ComponentActivity() {
                             onEditContactNumber = viewModel::openContactNumberDialog,
                             onDismissContactNumberDialog = viewModel::dismissContactNumberDialog,
                             onContactNumberInputChange = viewModel::setContactNumberInput,
-                            onSaveContactNumber = viewModel::saveContactNumber
+                            onSaveContactNumber = viewModel::saveContactNumber,
+                            onSwitchCampaign = viewModel::openCampaignPicker
+                        )
+
+                        Screen.CAMPAIGN -> CampaignScreen(
+                            state = state,
+                            showBack = state.profile?.currentCampaignId != null,
+                            onBack = viewModel::backFromCampaignPicker,
+                            onSelect = { campaign -> viewModel.selectCampaign(campaign.id) }
                         )
 
                         Screen.SEARCH -> SearchScreen(

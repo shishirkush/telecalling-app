@@ -9,6 +9,7 @@ import com.telecall.app.call.CallbackScheduler
 import com.telecall.app.call.SimManager
 import com.telecall.app.call.SimOption
 import com.telecall.app.data.CallStatus
+import com.telecall.app.data.Campaign
 import com.telecall.app.data.Lead
 import com.telecall.app.data.LeadQuality
 import com.telecall.app.data.LeadRepository
@@ -24,7 +25,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-enum class Screen { LOGIN, QUEUE, DETAIL, SEARCH, UNSUPPORTED_DEVICE }
+enum class Screen { LOGIN, QUEUE, DETAIL, SEARCH, CAMPAIGN, UNSUPPORTED_DEVICE }
 
 data class UiState(
     val screen: Screen = Screen.LOGIN,
@@ -36,6 +37,11 @@ data class UiState(
     val profile: Profile? = null,
     val queue: List<Lead> = emptyList(),
     val selected: Lead? = null,
+
+    // --- campaign picker (backend/32_campaigns.sql) ---
+    val campaigns: List<Campaign> = emptyList(),
+    val switchingCampaign: Boolean = false,
+    val campaignError: String? = null,
 
     // --- agent's own calling number, self-reported (backend/26_agent_contact_number.sql) ---
     val showContactNumberDialog: Boolean = false,
@@ -283,6 +289,14 @@ class AppViewModel(
                             showContactNumberDialog = it.showContactNumberDialog || p.value.contactNumber.isNullOrBlank()
                         )
                     }
+                    // No campaign picked yet (backend/32_campaigns.sql) —
+                    // claim_next_lead() will refuse until one is, so send
+                    // them here first rather than let them discover that
+                    // from an RPC error on their first "Next lead" tap.
+                    if (p.value.currentCampaignId == null) {
+                        openCampaignPicker()
+                        return@launch
+                    }
                 }
                 is Outcome.Err -> _state.update { it.copy(error = p.message) }
             }
@@ -321,6 +335,49 @@ class AppViewModel(
                     reconcileCallbackAlarms(r.value)
                 }
                 is Outcome.Err -> _state.update { it.copy(loading = false, error = r.message) }
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // Campaigns — an agent works one at a time (profiles.current_
+    // campaign_id, backend/32_campaigns.sql); selectCampaign() is the
+    // only place that value ever changes, always through
+    // switch_campaign(), never a raw profile write. Opened either because
+    // loadProfileAndQueue() found no campaign picked yet, or from the
+    // Queue screen's own "Switch campaign" action.
+    // -----------------------------------------------------------------
+
+    fun openCampaignPicker() {
+        _state.update { it.copy(screen = Screen.CAMPAIGN, campaignError = null) }
+        viewModelScope.launch {
+            when (val r = repo.getCampaigns()) {
+                is Outcome.Ok -> _state.update { it.copy(campaigns = r.value) }
+                is Outcome.Err -> _state.update { it.copy(campaignError = r.message) }
+            }
+        }
+    }
+
+    fun backFromCampaignPicker() {
+        _state.update { it.copy(screen = Screen.QUEUE) }
+    }
+
+    fun selectCampaign(campaignId: Long) {
+        if (_state.value.switchingCampaign) return
+        _state.update { it.copy(switchingCampaign = true, campaignError = null) }
+        viewModelScope.launch {
+            when (val r = repo.switchCampaign(campaignId)) {
+                is Outcome.Err -> _state.update { it.copy(switchingCampaign = false, campaignError = r.message) }
+                is Outcome.Ok -> {
+                    _state.update {
+                        it.copy(
+                            switchingCampaign = false,
+                            screen = Screen.QUEUE,
+                            profile = it.profile?.copy(currentCampaignId = campaignId)
+                        )
+                    }
+                    refreshQueue()
+                }
             }
         }
     }
