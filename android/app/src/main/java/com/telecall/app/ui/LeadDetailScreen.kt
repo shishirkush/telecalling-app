@@ -51,6 +51,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -142,16 +143,28 @@ fun LeadDetailScreen(
     // <queries> entry, added for the same reason for the Apply Card tab).
     // Opens straight to the chat; the agent still taps Send themselves on
     // whatever they type or attach there, same as every other outbound
-    // message this app hands off rather than sends silently.
-    fun openWhatsAppChat(cards: List<CardLink>) {
-        var url = "https://wa.me/" + waNumber(lead.mobile)
+    // message this app hands off rather than sends silently. [target]
+    // defaults to the lead's own mobile but the card picker lets the agent
+    // redirect to a different number instead — e.g. the same customer
+    // calling back later from another phone.
+    // *bold* is WhatsApp's own markdown. Falls back to a plain name + link
+    // line for any card missing from CardCatalog.pitches (shouldn't happen
+    // for anything in CardCatalog.bundled, but keeps this from ever
+    // producing a broken-looking message if it does).
+    fun cardBlock(card: CardLink): String {
+        val pitch = CardCatalog.pitches[card.slug]
+        return if (pitch != null) "*${pitch.title}*\n" + pitch.bullets.joinToString("\n") + "\n${card.url}"
+        else "${card.name}\n${card.url}"
+    }
+
+    fun openWhatsAppChat(target: String, cards: List<CardLink>) {
+        var url = "https://wa.me/" + waNumber(target)
         if (cards.isNotEmpty()) {
             val hasName = lead.name.isNotBlank() && lead.name != AppViewModel.UNKNOWN_NAME
-            val greeting = if (hasName) "Hi ${lead.name.trim().substringBefore(' ')}" else "Hi"
+            val greeting = (if (hasName) "Hi ${lead.name.trim().substringBefore(' ')}" else "Hi") + "! 👋"
             val text = buildString {
-                append("$greeting, as discussed, here ")
-                append(if (cards.size == 1) "is the card page:" else "are the card pages:")
-                cards.forEach { append("\n\n${it.name}\n${it.url}") }
+                append(greeting)
+                cards.forEach { append("\n\n"); append(cardBlock(it)) }
             }
             url += "?text=" + Uri.encode(text)
         }
@@ -164,27 +177,31 @@ fun LeadDetailScreen(
 
     val contactPerms = arrayOf(Manifest.permission.READ_CONTACTS, Manifest.permission.WRITE_CONTACTS)
 
-    // The agent picks cards first (they know what was discussed), then the
-    // contact save, permission prompt and WhatsApp launch follow from that
-    // choice. Held here so the permission launcher's callback can see it.
+    // The agent picks a target number and cards first (they know what was
+    // discussed), then the contact save, permission prompt and WhatsApp
+    // launch follow from that choice. Held here so the permission
+    // launcher's callback can see them.
     var showCardPicker by remember { mutableStateOf(false) }
+    var pendingTarget by remember { mutableStateOf("") }
     var pendingCards by remember { mutableStateOf<List<CardLink>>(emptyList()) }
 
     // Whatever the agent answers, WhatsApp still opens next — a denial just
     // means ContactSaver quietly skips saving the "<name> - TC" contact,
-    // same degrade-gracefully tolerance as callPerms above.
+    // same degrade-gracefully tolerance as callPerms above. Saved under
+    // whichever number is actually being messaged, not always the lead's own.
     val contactPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) {
-        ContactSaver.saveLeadContact(context, lead.name, lead.mobile)
-        openWhatsAppChat(pendingCards)
+        ContactSaver.saveLeadContact(context, lead.name, pendingTarget)
+        openWhatsAppChat(pendingTarget, pendingCards)
     }
 
-    fun startWhatsApp(cards: List<CardLink>) {
+    fun startWhatsApp(target: String, cards: List<CardLink>) {
+        pendingTarget = target
         pendingCards = cards
         if (ContactSaver.hasPermissions(context)) {
-            ContactSaver.saveLeadContact(context, lead.name, lead.mobile)
-            openWhatsAppChat(cards)
+            ContactSaver.saveLeadContact(context, lead.name, target)
+            openWhatsAppChat(target, cards)
         } else {
             contactPermissionLauncher.launch(contactPerms)
         }
@@ -192,9 +209,10 @@ fun LeadDetailScreen(
 
     if (showCardPicker) {
         CardPickerDialog(
-            onSend = { cards ->
+            leadMobile = lead.mobile,
+            onSend = { target, cards ->
                 showCardPicker = false
-                startWhatsApp(cards)
+                startWhatsApp(target, cards)
             },
             onDismiss = { showCardPicker = false }
         )
@@ -551,21 +569,69 @@ private const val MAX_CARDS = 3
  * Lets the agent tick up to [MAX_CARDS] card pages that fit the conversation with the
  * customer; the chosen cardadda.in links go into the WhatsApp message, which
  * the agent can still edit before sending. "Chat only" skips the links.
+ * Defaults the target to [leadMobile], but the agent can redirect the whole
+ * message to a different number instead — e.g. the same customer calling
+ * back later from another phone.
  */
 @Composable
 private fun CardPickerDialog(
-    onSend: (List<CardLink>) -> Unit,
+    leadMobile: String,
+    onSend: (target: String, cards: List<CardLink>) -> Unit,
     onDismiss: () -> Unit
 ) {
     var cards by remember { mutableStateOf(CardCatalog.bundled) }
     val selected = remember { mutableStateListOf<String>() }
+    var useOtherNumber by remember { mutableStateOf(false) }
+    var otherNumber by remember { mutableStateOf("") }
     LaunchedEffect(Unit) { cards = CardCatalog.load() }
+
+    // 10 bare digits is "good enough" — same bar waNumber() itself applies
+    // before deciding whether to prepend the 91 country code.
+    val otherValid = otherNumber.count { it.isDigit() } >= 10
+    val canProceed = !useOtherNumber || otherValid
+    val target = if (useOtherNumber) otherNumber else leadMobile
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Which cards to send?") },
         text = {
             Column {
+                Text("Send to", style = MaterialTheme.typography.labelLarge)
+                Spacer(Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { useOtherNumber = false }
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(selected = !useOtherNumber, onClick = { useOtherNumber = false })
+                    Spacer(Modifier.width(6.dp))
+                    Text("$leadMobile (this lead)", style = MaterialTheme.typography.bodyMedium)
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { useOtherNumber = true }
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(selected = useOtherNumber, onClick = { useOtherNumber = true })
+                    Spacer(Modifier.width(6.dp))
+                    Text("Another number", style = MaterialTheme.typography.bodyMedium)
+                }
+                if (useOtherNumber) {
+                    Spacer(Modifier.height(4.dp))
+                    OutlinedTextField(
+                        value = otherNumber,
+                        onValueChange = { otherNumber = it },
+                        placeholder = { Text("10-digit mobile number") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
                 Text(
                     "Pick up to $MAX_CARDS",
                     style = MaterialTheme.typography.bodySmall,
@@ -609,14 +675,14 @@ private fun CardPickerDialog(
         },
         confirmButton = {
             TextButton(
-                enabled = selected.isNotEmpty(),
-                onClick = { onSend(cards.filter { it.slug in selected }) }
+                enabled = selected.isNotEmpty() && canProceed,
+                onClick = { onSend(target, cards.filter { it.slug in selected }) }
             ) { Text(if (selected.isEmpty()) "Send" else "Send (${selected.size})") }
         },
         dismissButton = {
             Row {
                 TextButton(onClick = onDismiss) { Text("Cancel") }
-                TextButton(onClick = { onSend(emptyList()) }) { Text("Chat only") }
+                TextButton(enabled = canProceed, onClick = { onSend(target, emptyList()) }) { Text("Chat only") }
             }
         }
     )
