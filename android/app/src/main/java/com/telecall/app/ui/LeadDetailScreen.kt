@@ -1,10 +1,7 @@
 package com.telecall.app.ui
 
 import android.Manifest
-import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
-import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -20,10 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -39,7 +33,6 @@ import androidx.compose.material.icons.filled.SimCard
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
@@ -51,7 +44,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -62,7 +54,6 @@ import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -81,7 +72,6 @@ import com.telecall.app.UiState
 import com.telecall.app.call.ContactSaver
 import com.telecall.app.call.SimOption
 import com.telecall.app.data.CallStatus
-import com.telecall.app.data.CardCatalog
 import com.telecall.app.data.CardLink
 import com.telecall.app.data.Lead
 import com.telecall.app.data.LeadQuality
@@ -138,41 +128,14 @@ fun LeadDetailScreen(
     }
 
     // ---------- WhatsApp ----------
-    // wa.me is the officially supported deep link (Android 11+ package
-    // visibility already covers it — see the manifest's VIEW/https
-    // <queries> entry, added for the same reason for the Apply Card tab).
-    // Opens straight to the chat; the agent still taps Send themselves on
-    // whatever they type or attach there, same as every other outbound
-    // message this app hands off rather than sends silently. [target]
-    // defaults to the lead's own mobile but the card picker lets the agent
-    // redirect to a different number instead — e.g. the same customer
-    // calling back later from another phone.
-    // *bold* is WhatsApp's own markdown. Falls back to a plain name + link
-    // line for any card missing from CardCatalog.pitches (shouldn't happen
-    // for anything in CardCatalog.bundled, but keeps this from ever
-    // producing a broken-looking message if it does).
-    fun cardBlock(card: CardLink): String {
-        val pitch = CardCatalog.pitches[card.slug]
-        return if (pitch != null) "*${pitch.title}*\n" + pitch.bullets.joinToString("\n") + "\n${card.url}"
-        else "${card.name}\n${card.url}"
-    }
-
+    // Message building + launch is shared with the queue screen's "message
+    // any number" WhatsApp icon — see WhatsAppShare.kt. [target] defaults to
+    // the lead's own mobile but the card picker lets the agent redirect to a
+    // different number instead — e.g. the same customer calling back later
+    // from another phone.
     fun openWhatsAppChat(target: String, cards: List<CardLink>) {
-        var url = "https://wa.me/" + waNumber(target)
-        if (cards.isNotEmpty()) {
-            val hasName = lead.name.isNotBlank() && lead.name != AppViewModel.UNKNOWN_NAME
-            val greeting = (if (hasName) "Hi ${lead.name.trim().substringBefore(' ')}" else "Hi") + "! 👋"
-            val text = buildString {
-                append(greeting)
-                cards.forEach { append("\n\n"); append(cardBlock(it)) }
-            }
-            url += "?text=" + Uri.encode(text)
-        }
-        try {
-            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-        } catch (e: Exception) {
-            Toast.makeText(context, "No app available to open WhatsApp.", Toast.LENGTH_SHORT).show()
-        }
+        val greetingName = lead.name.takeIf { it.isNotBlank() && it != AppViewModel.UNKNOWN_NAME }
+        launchWhatsAppChat(context, target, cards, greetingName)
     }
 
     val contactPerms = arrayOf(Manifest.permission.READ_CONTACTS, Manifest.permission.WRITE_CONTACTS)
@@ -562,131 +525,9 @@ private fun WhatsAppButton(onClick: () -> Unit) {
     }
 }
 
-/** Keeps the WhatsApp message short and focused on what was discussed. */
-private const val MAX_CARDS = 3
-
-/**
- * Lets the agent tick up to [MAX_CARDS] card pages that fit the conversation with the
- * customer; the chosen cardadda.in links go into the WhatsApp message, which
- * the agent can still edit before sending. "Chat only" skips the links.
- * Defaults the target to [leadMobile], but the agent can redirect the whole
- * message to a different number instead — e.g. the same customer calling
- * back later from another phone.
- */
-@Composable
-private fun CardPickerDialog(
-    leadMobile: String,
-    onSend: (target: String, cards: List<CardLink>) -> Unit,
-    onDismiss: () -> Unit
-) {
-    var cards by remember { mutableStateOf(CardCatalog.bundled) }
-    val selected = remember { mutableStateListOf<String>() }
-    var useOtherNumber by remember { mutableStateOf(false) }
-    var otherNumber by remember { mutableStateOf("") }
-    LaunchedEffect(Unit) { cards = CardCatalog.load() }
-
-    // 10 bare digits is "good enough" — same bar waNumber() itself applies
-    // before deciding whether to prepend the 91 country code.
-    val otherValid = otherNumber.count { it.isDigit() } >= 10
-    val canProceed = !useOtherNumber || otherValid
-    val target = if (useOtherNumber) otherNumber else leadMobile
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Which cards to send?") },
-        text = {
-            Column {
-                Text("Send to", style = MaterialTheme.typography.labelLarge)
-                Spacer(Modifier.height(4.dp))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { useOtherNumber = false }
-                        .padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    RadioButton(selected = !useOtherNumber, onClick = { useOtherNumber = false })
-                    Spacer(Modifier.width(6.dp))
-                    Text("$leadMobile (this lead)", style = MaterialTheme.typography.bodyMedium)
-                }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { useOtherNumber = true }
-                        .padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    RadioButton(selected = useOtherNumber, onClick = { useOtherNumber = true })
-                    Spacer(Modifier.width(6.dp))
-                    Text("Another number", style = MaterialTheme.typography.bodyMedium)
-                }
-                if (useOtherNumber) {
-                    Spacer(Modifier.height(4.dp))
-                    OutlinedTextField(
-                        value = otherNumber,
-                        onValueChange = { otherNumber = it },
-                        placeholder = { Text("10-digit mobile number") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    "Pick up to $MAX_CARDS",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(Modifier.height(8.dp))
-                LazyColumn(modifier = Modifier.heightIn(max = 360.dp)) {
-                    items(cards, key = { it.slug }) { card ->
-                        val checked = card.slug in selected
-                        val enabled = checked || selected.size < MAX_CARDS
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable(enabled = enabled) {
-                                    if (checked) selected.remove(card.slug) else selected.add(card.slug)
-                                }
-                                .padding(vertical = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Checkbox(checked = checked, onCheckedChange = null, enabled = enabled)
-                            Spacer(Modifier.width(10.dp))
-                            Column {
-                                Text(
-                                    card.name,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = if (enabled) MaterialTheme.colorScheme.onSurface
-                                    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                                )
-                                if (card.issuer.isNotEmpty()) {
-                                    Text(
-                                        card.issuer,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = selected.isNotEmpty() && canProceed,
-                onClick = { onSend(target, cards.filter { it.slug in selected }) }
-            ) { Text(if (selected.isEmpty()) "Send" else "Send (${selected.size})") }
-        },
-        dismissButton = {
-            Row {
-                TextButton(onClick = onDismiss) { Text("Cancel") }
-                TextButton(enabled = canProceed, onClick = { onSend(target, emptyList()) }) { Text("Chat only") }
-            }
-        }
-    )
-}
+// CardPickerDialog + WhatsApp message building/launch now live in
+// WhatsAppShare.kt, shared with the queue screen's "message any number"
+// WhatsApp icon.
 
 @Composable
 private fun SimPickerDialog(

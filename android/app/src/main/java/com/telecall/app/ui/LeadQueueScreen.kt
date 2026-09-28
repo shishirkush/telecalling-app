@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Call
@@ -51,6 +52,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -98,6 +100,21 @@ fun LeadQueueScreen(
 
     val context = LocalContext.current
 
+    // No lead required — see CardPickerDialog's doc comment in
+    // WhatsAppShare.kt. Available any time the agent is signed in,
+    // regardless of calling hours or queue state.
+    var showWhatsAppPicker by remember { mutableStateOf(false) }
+    if (showWhatsAppPicker) {
+        CardPickerDialog(
+            leadMobile = null,
+            onSend = { target, cards ->
+                showWhatsAppPicker = false
+                launchWhatsAppChat(context, target, cards, greetingName = null)
+            },
+            onDismiss = { showWhatsAppPicker = false }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -120,6 +137,9 @@ fun LeadQueueScreen(
                     }
                     IconButton(onClick = onSearch) {
                         Icon(Icons.Filled.Search, contentDescription = "Search customer")
+                    }
+                    IconButton(onClick = { showWhatsAppPicker = true }) {
+                        Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = "WhatsApp any number")
                     }
                     IconButton(onClick = onSwitchCampaign) {
                         Icon(Icons.Filled.Folder, contentDescription = "Switch campaign")
