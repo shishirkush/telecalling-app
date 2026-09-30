@@ -57,7 +57,18 @@ class MainActivity : ComponentActivity() {
                             onDismissContactNumberDialog = viewModel::dismissContactNumberDialog,
                             onContactNumberInputChange = viewModel::setContactNumberInput,
                             onSaveContactNumber = viewModel::saveContactNumber,
-                            onSwitchCampaign = viewModel::openCampaignPicker
+                            onSwitchCampaign = viewModel::openCampaignPicker,
+                            onOpenBankAppsTab = viewModel::loadBankAppsIfNeeded,
+                            onStartNewBankApp = viewModel::startNewBankApp,
+                            onStartEditBankApp = viewModel::startEditBankApp,
+                            onCancelBankAppForm = viewModel::cancelBankAppForm,
+                            onBankAppBank = viewModel::onBankAppFieldBank,
+                            onBankAppCustomerName = viewModel::onBankAppFieldCustomerName,
+                            onBankAppPhone = viewModel::onBankAppFieldPhone,
+                            onBankAppApplicationId = viewModel::onBankAppFieldApplicationId,
+                            onBankAppCardName = viewModel::onBankAppFieldCardName,
+                            onBankAppVkycStatus = viewModel::onBankAppFieldVkycStatus,
+                            onSaveBankApp = viewModel::saveBankApp
                         )
 
                         Screen.CAMPAIGN -> CampaignScreen(

@@ -130,6 +130,72 @@ data class Profile(
     val isSupervisor: Boolean get() = role == "supervisor"
 }
 
+/** Mirrors backend/36_bank_applications.sql's `bank_app_vkyc_status` enum. */
+enum class VkycStatus(val wire: String, val label: String) {
+    PENDING("PENDING", "Pending"),
+    BIO_KYC("BIO_KYC", "Bio KYC"),
+    BIO_KYC_DONE("BIO_KYC_DONE", "Bio KYC Done"),
+    DONE("DONE", "Done"),
+    DECLINED("DECLINED", "Declined");
+
+    companion object {
+        fun fromWire(v: String?): VkycStatus = entries.firstOrNull { it.wire == v } ?: PENDING
+    }
+}
+
+/** Mirrors backend/36_bank_applications.sql's `bank_app_approval_status` enum. Admin-only to set. */
+enum class ApprovalStatus(val wire: String, val label: String) {
+    PENDING("PENDING", "Pending"),
+    APPROVED("APPROVED", "Approved"),
+    DECLINED("DECLINED", "Declined"),
+    DONE("DONE", "Done");
+
+    companion object {
+        fun fromWire(v: String?): ApprovalStatus = entries.firstOrNull { it.wire == v } ?: PENDING
+    }
+}
+
+/** Mirrors backend/36_bank_applications.sql's `bank_app_activation_status` enum. Admin-only to set. */
+enum class ActivationStatus(val wire: String, val label: String) {
+    PENDING("PENDING", "Pending"),
+    ACTIVE("ACTIVE", "Active"),
+    INACTIVE("INACTIVE", "Inactive");
+
+    companion object {
+        fun fromWire(v: String?): ActivationStatus = entries.firstOrNull { it.wire == v } ?: PENDING
+    }
+}
+
+/**
+ * One row from `v_bank_applications` — what happens to a lead after the
+ * agent gets them to apply for a card. Agent owns bank/application id/
+ * phone/customer/card/VKYC status at creation, and can edit name/
+ * application id/card/mobile any time (never bank or VKYC status, see
+ * update_bank_application()). Approval/activation are admin-only —
+ * this app never sends a write for those two fields.
+ */
+@Serializable
+data class BankApplication(
+    val id: Long,
+    val bank: String,
+    @SerialName("applied_at") val appliedAt: String,              // yyyy-MM-dd
+    @SerialName("application_id") val applicationId: String? = null,
+    val phone: String,
+    @SerialName("customer_name") val customerName: String,
+    @SerialName("agent_id") val agentId: String,
+    @SerialName("agent_name") val agentName: String? = null,
+    @SerialName("card_name") val cardName: String? = null,
+    @SerialName("vkyc_status") val vkycStatusWire: String = "PENDING",
+    @SerialName("approval_status") val approvalStatusWire: String = "PENDING",
+    @SerialName("activation_status") val activationStatusWire: String = "PENDING",
+    @SerialName("activation_note") val activationNote: String? = null,
+    @SerialName("lead_id") val leadId: Long? = null
+) {
+    val vkycStatus: VkycStatus get() = VkycStatus.fromWire(vkycStatusWire)
+    val approvalStatus: ApprovalStatus get() = ApprovalStatus.fromWire(approvalStatusWire)
+    val activationStatus: ActivationStatus get() = ActivationStatus.fromWire(activationStatusWire)
+}
+
 @Serializable
 data class Campaign(
     val id: Long,

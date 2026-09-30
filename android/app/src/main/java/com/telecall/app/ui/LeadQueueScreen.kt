@@ -6,6 +6,8 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -33,11 +35,13 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -50,6 +54,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -66,9 +71,12 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.telecall.app.BankAppFormMode
 import com.telecall.app.UiState
+import com.telecall.app.data.BankApplication
 import com.telecall.app.data.CallStatus
 import com.telecall.app.data.Lead
+import com.telecall.app.data.VkycStatus
 
 /** Where "Apply Card" sends the agent — cardadda.in, not part of this app. */
 private const val APPLY_CARD_URL = "https://www.cardadda.in/"
@@ -86,7 +94,18 @@ fun LeadQueueScreen(
     onDismissContactNumberDialog: () -> Unit,
     onContactNumberInputChange: (String) -> Unit,
     onSaveContactNumber: () -> Unit,
-    onSwitchCampaign: () -> Unit
+    onSwitchCampaign: () -> Unit,
+    onOpenBankAppsTab: () -> Unit,
+    onStartNewBankApp: () -> Unit,
+    onStartEditBankApp: (BankApplication) -> Unit,
+    onCancelBankAppForm: () -> Unit,
+    onBankAppBank: (String) -> Unit,
+    onBankAppCustomerName: (String) -> Unit,
+    onBankAppPhone: (String) -> Unit,
+    onBankAppApplicationId: (String) -> Unit,
+    onBankAppCardName: (String) -> Unit,
+    onBankAppVkycStatus: (VkycStatus) -> Unit,
+    onSaveBankApp: () -> Unit
 ) {
     // Split, not two separate queries: myQueue() already returns every open
     // assigned lead in one call, so this is just "which half are we looking
@@ -159,14 +178,28 @@ fun LeadQueueScreen(
             )
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = onClaimNext,
-                icon = { Icon(Icons.Filled.Add, contentDescription = null) },
-                text = { Text("Next lead") }
-            )
+            // Only meaningful on Queue/CallBacks — My Leads is a read-only
+            // overview and Bank Apps has its own "+ Log application" action.
+            if (selectedTab == 0 || selectedTab == 1) {
+                ExtendedFloatingActionButton(
+                    onClick = onClaimNext,
+                    icon = { Icon(Icons.Filled.Add, contentDescription = null) },
+                    text = { Text("Next lead") }
+                )
+            }
         }
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
+            // "My Leads" is this agent's own logged bank applications, not
+            // a second view of the calling queue — Queue/CallBacks already
+            // show that. Its data lives on the server, unlike Queue/
+            // CallBacks (already-loaded state.queue split two ways), so
+            // it's loaded once, the first time the agent actually opens
+            // this tab.
+            LaunchedEffect(selectedTab) {
+                if (selectedTab == 2) onOpenBankAppsTab()
+            }
+
             TabRow(selectedTabIndex = selectedTab) {
                 Tab(
                     selected = selectedTab == 0,
@@ -178,9 +211,14 @@ fun LeadQueueScreen(
                     onClick = { selectedTab = 1 },
                     text = { Text(if (callbackLeads.isEmpty()) "CallBacks" else "CallBacks (${callbackLeads.size})") }
                 )
+                Tab(
+                    selected = selectedTab == 2,
+                    onClick = { selectedTab = 2 },
+                    text = { Text("My Leads") }
+                )
                 // Not a real content tab — tapping it sends the agent straight
                 // to cardadda.in in the browser and leaves selectedTab alone,
-                // so it never renders as "selected" (there is no third list).
+                // so it never renders as "selected" (there is no fourth list).
                 Tab(
                     selected = false,
                     onClick = {
@@ -196,6 +234,21 @@ fun LeadQueueScreen(
 
             Box(Modifier.fillMaxSize()) {
                 when {
+                    selectedTab == 2 -> {
+                        BankAppsTab(
+                            state = state,
+                            onStartNewBankApp = onStartNewBankApp,
+                            onStartEditBankApp = onStartEditBankApp,
+                            onCancelBankAppForm = onCancelBankAppForm,
+                            onBankAppBank = onBankAppBank,
+                            onBankAppCustomerName = onBankAppCustomerName,
+                            onBankAppPhone = onBankAppPhone,
+                            onBankAppApplicationId = onBankAppApplicationId,
+                            onBankAppCardName = onBankAppCardName,
+                            onBankAppVkycStatus = onBankAppVkycStatus,
+                            onSaveBankApp = onSaveBankApp
+                        )
+                    }
                     state.loading && state.queue.isEmpty() -> {
                         CircularProgressIndicator(Modifier.align(Alignment.Center))
                     }
@@ -493,5 +546,229 @@ fun StatusChip(status: CallStatus) {
             style = MaterialTheme.typography.labelMedium,
             color = c
         )
+    }
+}
+
+/**
+ * What happens to a lead after this agent gets them to apply for a
+ * card (backend/36_bank_applications.sql) — logging a new application
+ * and editing name/application id/card/mobile on an existing one. Bank,
+ * VKYC status, and approval/activation are never editable from here;
+ * see [BankAppForm]'s doc comment.
+ */
+@Composable
+private fun BankAppsTab(
+    state: UiState,
+    onStartNewBankApp: () -> Unit,
+    onStartEditBankApp: (BankApplication) -> Unit,
+    onCancelBankAppForm: () -> Unit,
+    onBankAppBank: (String) -> Unit,
+    onBankAppCustomerName: (String) -> Unit,
+    onBankAppPhone: (String) -> Unit,
+    onBankAppApplicationId: (String) -> Unit,
+    onBankAppCardName: (String) -> Unit,
+    onBankAppVkycStatus: (VkycStatus) -> Unit,
+    onSaveBankApp: () -> Unit
+) {
+    LazyColumn(
+        contentPadding = PaddingValues(12.dp, 8.dp, 12.dp, 88.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.fillMaxSize()
+    ) {
+        item {
+            if (state.bankAppFormMode != BankAppFormMode.NONE) {
+                BankAppForm(
+                    state = state,
+                    onBankAppBank = onBankAppBank,
+                    onBankAppCustomerName = onBankAppCustomerName,
+                    onBankAppPhone = onBankAppPhone,
+                    onBankAppApplicationId = onBankAppApplicationId,
+                    onBankAppCardName = onBankAppCardName,
+                    onBankAppVkycStatus = onBankAppVkycStatus,
+                    onCancel = onCancelBankAppForm,
+                    onSave = onSaveBankApp
+                )
+            } else {
+                Button(onClick = onStartNewBankApp) { Text("+ Log application") }
+            }
+        }
+        when {
+            state.bankAppsLoading -> item {
+                Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+            }
+            state.bankApps.isEmpty() -> item {
+                Text(
+                    "No applications logged yet.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(16.dp)
+                )
+            }
+            else -> items(state.bankApps, key = { it.id }) { row ->
+                BankAppCard(row = row, onEdit = { onStartEditBankApp(row) })
+            }
+        }
+    }
+}
+
+/**
+ * Bank and VKYC status only ever get set in the NEW form, at creation —
+ * the EDIT form shows them as plain text instead of fields, matching
+ * update_bank_application()'s narrowed signature server-side (name/
+ * application id/card/mobile only). Approval/activation don't appear
+ * on this screen at all; only admin sets those, from the dashboard.
+ */
+@Composable
+private fun BankAppForm(
+    state: UiState,
+    onBankAppBank: (String) -> Unit,
+    onBankAppCustomerName: (String) -> Unit,
+    onBankAppPhone: (String) -> Unit,
+    onBankAppApplicationId: (String) -> Unit,
+    onBankAppCardName: (String) -> Unit,
+    onBankAppVkycStatus: (VkycStatus) -> Unit,
+    onCancel: () -> Unit,
+    onSave: () -> Unit
+) {
+    val isNew = state.bankAppFormMode == BankAppFormMode.NEW
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp)) {
+            Text(
+                text = if (isNew) "Log a new application" else "Edit application",
+                style = MaterialTheme.typography.titleMedium
+            )
+            Spacer(Modifier.height(10.dp))
+            if (isNew) {
+                OutlinedTextField(
+                    value = state.bankAppFormBank,
+                    onValueChange = onBankAppBank,
+                    label = { Text("Bank") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(8.dp))
+            } else {
+                Text("Bank: ${state.bankAppFormBank}", style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(8.dp))
+            }
+            OutlinedTextField(
+                value = state.bankAppFormCustomerName,
+                onValueChange = onBankAppCustomerName,
+                label = { Text("Customer name") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = state.bankAppFormPhone,
+                onValueChange = onBankAppPhone,
+                label = { Text("Phone") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = state.bankAppFormApplicationId,
+                onValueChange = onBankAppApplicationId,
+                label = { Text("Application ID (if known)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = state.bankAppFormCardName,
+                onValueChange = onBankAppCardName,
+                label = { Text("Card (if this bank names one)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            if (isNew) {
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "VKYC status",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    VkycStatus.entries.forEach { v ->
+                        FilterChip(
+                            selected = state.bankAppFormVkycStatus == v,
+                            onClick = { onBankAppVkycStatus(v) },
+                            label = { Text(v.label) }
+                        )
+                    }
+                }
+            } else {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Bank and VKYC status can only be set when logging a new " +
+                        "application. Approval and activation are set by admin only.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (state.bankAppsError != null) {
+                Spacer(Modifier.height(8.dp))
+                Text(state.bankAppsError, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
+            Spacer(Modifier.height(14.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = onCancel, modifier = Modifier.weight(1f), enabled = !state.bankAppSaving) {
+                    Text("Cancel")
+                }
+                Button(onClick = onSave, modifier = Modifier.weight(1f), enabled = !state.bankAppSaving) {
+                    if (state.bankAppSaving) {
+                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                    } else {
+                        Text("Save")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BankAppCard(row: BankApplication, onEdit: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.Top) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = "${row.customerName} · ${row.bank}",
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (!row.cardName.isNullOrBlank()) {
+                    Text(row.cardName, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Text(
+                    text = row.phone + (row.applicationId?.let { " · $it" } ?: ""),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = "VKYC: ${row.vkycStatus.label}  ·  Approval: ${row.approvalStatus.label}  ·  Activation: ${row.activationStatus.label}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (!row.activationNote.isNullOrBlank()) {
+                    Text(row.activationNote, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            TextButton(onClick = onEdit) { Text("Edit") }
+        }
     }
 }

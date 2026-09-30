@@ -393,6 +393,74 @@ class LeadRepository(private val client: SupabaseClient) {
     }
 
     /**
+     * This agent's own bank card applications — RLS on `bank_applications`
+     * scopes this to their own rows automatically (see
+     * backend/36_bank_applications.sql), same as [myQueue] for leads.
+     */
+    suspend fun myBankApplications(): Outcome<List<BankApplication>> =
+        when (val r = client.get("v_bank_applications", "select=*&order=applied_at.desc,id.desc")) {
+            is Outcome.Err -> r
+            is Outcome.Ok -> runCatching { json.decodeFromString<List<BankApplication>>(r.value) }
+                .fold({ Outcome.Ok(it) }, { Outcome.Err("Could not read bank applications: ${it.message}") })
+        }
+
+    /**
+     * Log a new bank card application. `bank` and `vkycStatus` are only
+     * ever set here, at creation — see [updateBankApplication] and
+     * backend/36_bank_applications.sql for why editing later can't touch
+     * either.
+     */
+    suspend fun logBankApplication(
+        bank: String,
+        customerName: String,
+        phone: String,
+        applicationId: String?,
+        cardName: String?,
+        vkycStatus: VkycStatus
+    ): Outcome<Long> {
+        val body = buildJsonObject {
+            put("p_bank", bank)
+            put("p_customer_name", customerName)
+            put("p_phone", phone)
+            applicationId?.let { put("p_application_id", it) }
+            cardName?.let { put("p_card_name", it) }
+            put("p_vkyc_status", vkycStatus.wire)
+        }
+        return when (val r = client.rpc("log_bank_application", body.toString())) {
+            is Outcome.Err -> r
+            is Outcome.Ok -> runCatching { r.value.trim().toLong() }
+                .fold({ Outcome.Ok(it) }, { Outcome.Err("Saved, but the new application's id could not be read.") })
+        }
+    }
+
+    /**
+     * Agent edits their own entry — name/application id/card/mobile
+     * only, any time, including after admin has already recorded a
+     * decision. Never bank, never VKYC status, never approval/
+     * activation — those parameters don't exist on this call at all,
+     * matching update_bank_application()'s narrowed signature.
+     */
+    suspend fun updateBankApplication(
+        id: Long,
+        customerName: String,
+        phone: String,
+        applicationId: String?,
+        cardName: String?
+    ): Outcome<Unit> {
+        val body = buildJsonObject {
+            put("p_id", id)
+            put("p_customer_name", customerName)
+            put("p_phone", phone)
+            applicationId?.let { put("p_application_id", it) }
+            cardName?.let { put("p_card_name", it) }
+        }
+        return when (val r = client.rpc("update_bank_application", body.toString())) {
+            is Outcome.Err -> r
+            is Outcome.Ok -> Outcome.Ok(Unit)
+        }
+    }
+
+    /**
      * Whole-database customer lookup by exact mobile or PAN, for a
      * callback whose lead is no longer in this agent's own queue — see
      * backend/16_lead_search.sql for why this is a narrow, audited,

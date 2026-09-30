@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import com.telecall.app.call.CallbackScheduler
 import com.telecall.app.call.SimManager
 import com.telecall.app.call.SimOption
+import com.telecall.app.data.BankApplication
 import com.telecall.app.data.CallStatus
 import com.telecall.app.data.Campaign
 import com.telecall.app.data.Lead
@@ -15,6 +16,7 @@ import com.telecall.app.data.LeadQuality
 import com.telecall.app.data.LeadRepository
 import com.telecall.app.data.Outcome
 import com.telecall.app.data.Profile
+import com.telecall.app.data.VkycStatus
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -26,6 +28,9 @@ import java.util.Date
 import java.util.Locale
 
 enum class Screen { LOGIN, QUEUE, DETAIL, SEARCH, CAMPAIGN, UNSUPPORTED_DEVICE }
+
+/** Which form (if any) the Bank Apps tab is showing. */
+enum class BankAppFormMode { NONE, NEW, EDIT }
 
 data class UiState(
     val screen: Screen = Screen.LOGIN,
@@ -80,7 +85,22 @@ data class UiState(
     val searching: Boolean = false,
     val searchError: String? = null,
     val searchResults: List<Lead> = emptyList(),
-    val searchSelected: Lead? = null   // read-only detail popup
+    val searchSelected: Lead? = null,   // read-only detail popup
+
+    // --- bank applications (backend/36_bank_applications.sql) ---
+    val bankApps: List<BankApplication> = emptyList(),
+    val bankAppsLoaded: Boolean = false,
+    val bankAppsLoading: Boolean = false,
+    val bankAppsError: String? = null,
+    val bankAppSaving: Boolean = false,
+    val bankAppFormMode: BankAppFormMode = BankAppFormMode.NONE,
+    val bankAppEditingId: Long? = null,
+    val bankAppFormBank: String = "",
+    val bankAppFormCustomerName: String = "",
+    val bankAppFormPhone: String = "",
+    val bankAppFormApplicationId: String = "",
+    val bankAppFormCardName: String = "",
+    val bankAppFormVkycStatus: VkycStatus = VkycStatus.PENDING
 ) {
     /** The Lead sub-dropdown is only required when the status is LEAD. */
     val needsQuality: Boolean get() = formStatus == CallStatus.LEAD
@@ -342,6 +362,123 @@ class AppViewModel(
                     reconcileCallbackAlarms(r.value)
                 }
                 is Outcome.Err -> _state.update { it.copy(loading = false, error = r.message) }
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // Bank applications (backend/36_bank_applications.sql) — what
+    // happens to a lead after the agent gets them to apply for a card.
+    // Loaded lazily, once per session, the first time the Bank Apps tab
+    // is opened (LeadQueueScreen's LaunchedEffect calls this) rather than
+    // alongside every queue refresh, since it's a separate table an
+    // agent may never look at in a given session.
+    // -----------------------------------------------------------------
+
+    fun loadBankAppsIfNeeded() {
+        val s = _state.value
+        if (s.bankAppsLoaded || s.bankAppsLoading) return
+        _state.update { it.copy(bankAppsLoading = true, bankAppsError = null) }
+        viewModelScope.launch {
+            when (val r = repo.myBankApplications()) {
+                is Outcome.Ok -> _state.update {
+                    it.copy(bankAppsLoading = false, bankAppsLoaded = true, bankApps = r.value)
+                }
+                is Outcome.Err -> _state.update { it.copy(bankAppsLoading = false, bankAppsError = r.message) }
+            }
+        }
+    }
+
+    private fun refreshBankApps() {
+        viewModelScope.launch {
+            when (val r = repo.myBankApplications()) {
+                is Outcome.Ok -> _state.update { it.copy(bankApps = r.value, bankAppsLoaded = true) }
+                is Outcome.Err -> _state.update { it.copy(bankAppsError = r.message) }
+            }
+        }
+    }
+
+    fun startNewBankApp() = _state.update {
+        it.copy(
+            bankAppFormMode = BankAppFormMode.NEW,
+            bankAppEditingId = null,
+            bankAppsError = null,
+            bankAppFormBank = "",
+            bankAppFormCustomerName = "",
+            bankAppFormPhone = "",
+            bankAppFormApplicationId = "",
+            bankAppFormCardName = "",
+            bankAppFormVkycStatus = VkycStatus.PENDING
+        )
+    }
+
+    fun startEditBankApp(row: BankApplication) = _state.update {
+        it.copy(
+            bankAppFormMode = BankAppFormMode.EDIT,
+            bankAppEditingId = row.id,
+            bankAppsError = null,
+            bankAppFormBank = row.bank,
+            bankAppFormCustomerName = row.customerName,
+            bankAppFormPhone = row.phone,
+            bankAppFormApplicationId = row.applicationId.orEmpty(),
+            bankAppFormCardName = row.cardName.orEmpty(),
+            bankAppFormVkycStatus = row.vkycStatus
+        )
+    }
+
+    fun cancelBankAppForm() = _state.update {
+        it.copy(bankAppFormMode = BankAppFormMode.NONE, bankAppEditingId = null, bankAppsError = null)
+    }
+
+    fun onBankAppFieldBank(v: String) = _state.update { it.copy(bankAppFormBank = v) }
+    fun onBankAppFieldCustomerName(v: String) = _state.update { it.copy(bankAppFormCustomerName = v) }
+    fun onBankAppFieldPhone(v: String) = _state.update { it.copy(bankAppFormPhone = v) }
+    fun onBankAppFieldApplicationId(v: String) = _state.update { it.copy(bankAppFormApplicationId = v) }
+    fun onBankAppFieldCardName(v: String) = _state.update { it.copy(bankAppFormCardName = v) }
+    fun onBankAppFieldVkycStatus(v: VkycStatus) = _state.update { it.copy(bankAppFormVkycStatus = v) }
+
+    fun saveBankApp() {
+        val s = _state.value
+        val isNew = s.bankAppFormMode == BankAppFormMode.NEW
+        if (isNew && s.bankAppFormBank.isBlank()) {
+            _state.update { it.copy(bankAppsError = "Bank is required.") }
+            return
+        }
+        if (s.bankAppFormPhone.isBlank() || s.bankAppFormCustomerName.isBlank()) {
+            _state.update { it.copy(bankAppsError = "Phone and customer name are required.") }
+            return
+        }
+        _state.update { it.copy(bankAppSaving = true, bankAppsError = null) }
+        viewModelScope.launch {
+            val result = if (isNew) {
+                repo.logBankApplication(
+                    bank = s.bankAppFormBank.trim(),
+                    customerName = s.bankAppFormCustomerName.trim(),
+                    phone = s.bankAppFormPhone.trim(),
+                    applicationId = s.bankAppFormApplicationId.trim().takeIf { it.isNotBlank() },
+                    cardName = s.bankAppFormCardName.trim().takeIf { it.isNotBlank() },
+                    vkycStatus = s.bankAppFormVkycStatus
+                )
+            } else {
+                val id = s.bankAppEditingId
+                if (id == null) {
+                    _state.update { it.copy(bankAppSaving = false, bankAppsError = "No application selected.") }
+                    return@launch
+                }
+                repo.updateBankApplication(
+                    id = id,
+                    customerName = s.bankAppFormCustomerName.trim(),
+                    phone = s.bankAppFormPhone.trim(),
+                    applicationId = s.bankAppFormApplicationId.trim().takeIf { it.isNotBlank() },
+                    cardName = s.bankAppFormCardName.trim().takeIf { it.isNotBlank() }
+                )
+            }
+            when (result) {
+                is Outcome.Err -> _state.update { it.copy(bankAppSaving = false, bankAppsError = result.message) }
+                is Outcome.Ok -> {
+                    _state.update { it.copy(bankAppSaving = false, bankAppFormMode = BankAppFormMode.NONE, bankAppEditingId = null) }
+                    refreshBankApps()
+                }
             }
         }
     }
