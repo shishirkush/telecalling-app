@@ -34,13 +34,8 @@ android {
         // permanently consumes a version code the moment a bundle using it
         // is uploaded, even to a draft/closed-testing release, so it can
         // never be reused even if that bundle is later removed.
-        // versionCode 40 AND 41 were already uploaded (unpublished) to Play
-        // Console while preparing this same 1.15.0 release — both consumed
-        // per the note above (41 even after its draft release was
-        // discarded — the artifact library keeps the upload, not just the
-        // release), so the build that actually ships 1.15.0 has to be 42.
-        versionCode = 42
-        versionName = "1.15.0"
+        versionCode = 43
+        versionName = "1.16.0"
 
         buildConfigField("String", "SUPABASE_URL",      "\"${prop("SUPABASE_URL")}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${prop("SUPABASE_ANON_KEY")}\"")
