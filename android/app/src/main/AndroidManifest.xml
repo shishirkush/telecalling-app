@@ -72,6 +72,15 @@
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="https" />
         </intent>
+
+        <!-- Named-package visibility only (not QUERY_ALL_PACKAGES) — lets
+             CompetitorAppCheck.kt ask "is this ONE specific, named app
+             installed?" for exactly the three below, nothing else. See
+             backend/35_competitor_app_check.sql; disclosed in the Play
+             Store privacy policy (docs/privacy-policy/index.html). -->
+        <package android:name="com.gromo.partner" />               <!-- GroMo -->
+        <package android:name="in.magnetapp" />                    <!-- Zet -->
+        <package android:name="com.mymoneymantra.customer.app" />  <!-- MyMoneyMantra -->
     </queries>
 
     <application

@@ -34,8 +34,8 @@ android {
         // permanently consumes a version code the moment a bundle using it
         // is uploaded, even to a draft/closed-testing release, so it can
         // never be reused even if that bundle is later removed.
-        versionCode = 38
-        versionName = "1.13.0"
+        versionCode = 39
+        versionName = "1.14.0"
 
         buildConfigField("String", "SUPABASE_URL",      "\"${prop("SUPABASE_URL")}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${prop("SUPABASE_ANON_KEY")}\"")

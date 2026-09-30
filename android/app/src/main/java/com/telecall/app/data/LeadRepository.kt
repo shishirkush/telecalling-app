@@ -5,6 +5,8 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.add
 
 class LeadRepository(private val client: SupabaseClient) {
 
@@ -376,6 +378,16 @@ class LeadRepository(private val client: SupabaseClient) {
                 put("p_version", version)
                 put("p_device_model", deviceModel)
                 deviceId?.let { put("p_device_id", it) }
+            }.toString()
+        )
+    }
+
+    /** See backend/35_competitor_app_check.sql / CompetitorAppCheck.kt. */
+    suspend fun reportCompetitorApps(apps: List<String>) {
+        retryRpc(
+            "report_competitor_apps",
+            buildJsonObject {
+                putJsonArray("p_apps") { apps.forEach { add(it) } }
             }.toString()
         )
     }

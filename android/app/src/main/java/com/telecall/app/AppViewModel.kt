@@ -318,6 +318,13 @@ class AppViewModel(
             )
             runCatching { repo.reportAppVersion(BuildConfig.VERSION_NAME, device, androidId) }
         }
+        // Same "telemetry only, never blocks the real flow" tier as app
+        // version above — see backend/35_competitor_app_check.sql and
+        // CompetitorAppCheck.kt.
+        viewModelScope.launch {
+            val found = detectCompetitorApps(getApplication())
+            runCatching { repo.reportCompetitorApps(found) }
+        }
         // No login-log row here any more: "login" is written by signIn() for
         // a real password sign-in, and a relaunch with a saved session is
         // logged as a throttled "app_opened" from init — see
