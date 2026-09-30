@@ -8,6 +8,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -25,6 +26,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Add
@@ -73,10 +75,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.telecall.app.BankAppFormMode
 import com.telecall.app.UiState
+import com.telecall.app.data.ApprovalStatus
 import com.telecall.app.data.BankApplication
 import com.telecall.app.data.CallStatus
 import com.telecall.app.data.Lead
 import com.telecall.app.data.VkycStatus
+import com.telecall.app.ui.theme.StatusLead
 
 /** Where "Apply Card" sends the agent — cardadda.in, not part of this app. */
 private const val APPLY_CARD_URL = "https://www.cardadda.in/"
@@ -97,7 +101,7 @@ fun LeadQueueScreen(
     onSwitchCampaign: () -> Unit,
     onOpenBankAppsTab: () -> Unit,
     onStartNewBankApp: () -> Unit,
-    onStartEditBankApp: (BankApplication) -> Unit,
+    onOpenBankAppDetail: (BankApplication) -> Unit,
     onCancelBankAppForm: () -> Unit,
     onBankAppBank: (String) -> Unit,
     onBankAppCustomerName: (String) -> Unit,
@@ -238,7 +242,7 @@ fun LeadQueueScreen(
                         BankAppsTab(
                             state = state,
                             onStartNewBankApp = onStartNewBankApp,
-                            onStartEditBankApp = onStartEditBankApp,
+                            onOpenBankAppDetail = onOpenBankAppDetail,
                             onCancelBankAppForm = onCancelBankAppForm,
                             onBankAppBank = onBankAppBank,
                             onBankAppCustomerName = onBankAppCustomerName,
@@ -551,16 +555,19 @@ fun StatusChip(status: CallStatus) {
 
 /**
  * What happens to a lead after this agent gets them to apply for a
- * card (backend/36_bank_applications.sql) — logging a new application
- * and editing name/application id/card/mobile on an existing one. Bank,
- * VKYC status, and approval/activation are never editable from here;
- * see [BankAppForm]'s doc comment.
+ * card (backend/36_bank_applications.sql). The list itself is a summary
+ * only — date, customer name, bank, nothing else, green when approved —
+ * tapping a row opens BankAppDetailScreen, where the rest (mobile,
+ * card, application id, VKYC/approval/activation) and editing live.
+ * The only form ever shown inline here is "log a new one"; see
+ * [BankAppForm]'s doc comment for why editing an existing entry never
+ * touches bank or VKYC status.
  */
 @Composable
 private fun BankAppsTab(
     state: UiState,
     onStartNewBankApp: () -> Unit,
-    onStartEditBankApp: (BankApplication) -> Unit,
+    onOpenBankAppDetail: (BankApplication) -> Unit,
     onCancelBankAppForm: () -> Unit,
     onBankAppBank: (String) -> Unit,
     onBankAppCustomerName: (String) -> Unit,
@@ -576,7 +583,7 @@ private fun BankAppsTab(
         modifier = Modifier.fillMaxSize()
     ) {
         item {
-            if (state.bankAppFormMode != BankAppFormMode.NONE) {
+            if (state.bankAppFormMode == BankAppFormMode.NEW) {
                 BankAppForm(
                     state = state,
                     onBankAppBank = onBankAppBank,
@@ -606,28 +613,8 @@ private fun BankAppsTab(
                     modifier = Modifier.padding(16.dp)
                 )
             }
-            else -> {
-                // Already sorted applied_at desc, id desc by the
-                // v_bank_applications query in LeadRepository — a header
-                // on every date change groups it datewise, latest to
-                // earliest, with no extra sort needed here.
-                var lastDate: String? = null
-                state.bankApps.forEach { row ->
-                    if (row.appliedAt != lastDate) {
-                        lastDate = row.appliedAt
-                        item(key = "ba-date-${row.appliedAt}") {
-                            Text(
-                                formatDob(row.appliedAt),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(top = 4.dp)
-                            )
-                        }
-                    }
-                    item(key = row.id) {
-                        BankAppCard(row = row, onEdit = { onStartEditBankApp(row) })
-                    }
-                }
+            else -> items(state.bankApps, key = { it.id }) { row ->
+                BankAppCard(row = row, onClick = { onOpenBankAppDetail(row) })
             }
         }
     }
@@ -756,39 +743,153 @@ private fun BankAppForm(
 }
 
 @Composable
-private fun BankAppCard(row: BankApplication, onEdit: () -> Unit) {
+private fun BankAppCard(row: BankApplication, onClick: () -> Unit) {
+    val approved = row.approvalStatus == ApprovalStatus.APPROVED
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(
+            containerColor = if (approved) StatusLead else MaterialTheme.colorScheme.surface
+        ),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.Top) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    text = "${row.customerName} · ${row.bank}",
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+        Column(Modifier.padding(14.dp)) {
+            Text(
+                text = "${row.customerName} · ${row.bank}",
+                style = MaterialTheme.typography.titleMedium,
+                color = if (approved) Color.White else MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = formatDob(row.appliedAt),
+                style = MaterialTheme.typography.labelMedium,
+                color = if (approved) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+/**
+ * Full-page detail for a single logged application — lead, bank and
+ * status, plus editing. Reached by tapping a row on the My Leads tab
+ * above, mirroring LeadDetailScreen's own summary-then-tap-for-detail
+ * pattern (minus the call-attempt/assignment logic that's specific to
+ * leads). The approved-green treatment lives on the list row only;
+ * this page stays plain regardless of status.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun BankAppDetailScreen(
+    state: UiState,
+    row: BankApplication,
+    onBack: () -> Unit,
+    onStartEdit: () -> Unit,
+    onCancelEdit: () -> Unit,
+    onBankAppCustomerName: (String) -> Unit,
+    onBankAppPhone: (String) -> Unit,
+    onBankAppApplicationId: (String) -> Unit,
+    onBankAppCardName: (String) -> Unit,
+    onSaveBankApp: () -> Unit
+) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(row.customerName, style = MaterialTheme.typography.titleLarge) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer
                 )
-                if (!row.cardName.isNullOrBlank()) {
-                    Text(row.cardName, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Text(
-                    text = row.phone + (row.applicationId?.let { " · $it" } ?: ""),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    text = "VKYC: ${row.vkycStatus.label}  ·  Approval: ${row.approvalStatus.label}  ·  Activation: ${row.activationStatus.label}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                if (!row.activationNote.isNullOrBlank()) {
-                    Text(row.activationNote, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .padding(padding)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp)
+        ) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    if (state.bankAppFormMode == BankAppFormMode.EDIT) {
+                        BankAppForm(
+                            state = state,
+                            onBankAppBank = {}, // bank is never editable — see BankAppForm's own doc comment
+                            onBankAppCustomerName = onBankAppCustomerName,
+                            onBankAppPhone = onBankAppPhone,
+                            onBankAppApplicationId = onBankAppApplicationId,
+                            onBankAppCardName = onBankAppCardName,
+                            onBankAppVkycStatus = {}, // VKYC likewise fixed once logged
+                            onCancel = onCancelEdit,
+                            onSave = onSaveBankApp
+                        )
+                        return@Column
+                    }
+
+                    BaSectionLabel("Lead")
+                    BaField("Customer", row.customerName)
+                    BaField("Mobile", row.phone)
+                    BaSectionLabel("Bank")
+                    BaField("Bank", row.bank)
+                    BaField("Card", row.cardName ?: "—")
+                    BaField("Application ID", row.applicationId ?: "—")
+                    BaField("VKYC status", row.vkycStatus.label)
+                    BaSectionLabel("Status")
+                    BaField("Approval", row.approvalStatus.label)
+                    BaField(
+                        "Activation",
+                        row.activationStatus.label +
+                            (row.activationNote?.takeIf { it.isNotBlank() }?.let { " ($it)" } ?: "")
+                    )
+                    BaField("Applied", formatDob(row.appliedAt))
+
+                    if (state.bankAppsError != null) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(state.bankAppsError, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
+
+                    TextButton(onClick = onStartEdit, modifier = Modifier.align(Alignment.End)) {
+                        Text("Edit")
+                    }
                 }
             }
-            TextButton(onClick = onEdit) { Text("Edit") }
         }
+    }
+}
+
+@Composable
+private fun BaSectionLabel(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(top = 10.dp, bottom = 4.dp)
+    )
+}
+
+@Composable
+private fun BaField(label: String, value: String) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(150.dp)
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f)
+        )
     }
 }

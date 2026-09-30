@@ -12,6 +12,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import com.telecall.app.ui.BankAppDetailScreen
 import com.telecall.app.ui.CampaignScreen
 import com.telecall.app.ui.LeadDetailScreen
 import com.telecall.app.ui.LeadQueueScreen
@@ -60,7 +61,7 @@ class MainActivity : ComponentActivity() {
                             onSwitchCampaign = viewModel::openCampaignPicker,
                             onOpenBankAppsTab = viewModel::loadBankAppsIfNeeded,
                             onStartNewBankApp = viewModel::startNewBankApp,
-                            onStartEditBankApp = viewModel::startEditBankApp,
+                            onOpenBankAppDetail = viewModel::openBankAppDetail,
                             onCancelBankAppForm = viewModel::cancelBankAppForm,
                             onBankAppBank = viewModel::onBankAppFieldBank,
                             onBankAppCustomerName = viewModel::onBankAppFieldCustomerName,
@@ -120,6 +121,28 @@ class MainActivity : ComponentActivity() {
                                     onEditIncome = viewModel::onEditIncome,
                                     onEditAddress = viewModel::onEditAddress,
                                     onSaveDetails = viewModel::saveDetails
+                                )
+                            }
+                        }
+
+                        Screen.BANK_APP_DETAIL -> {
+                            val row = state.selectedBankApp
+                            if (row == null) {
+                                // Defensive: never mutate state during composition.
+                                LaunchedEffect(Unit) { viewModel.backFromBankAppDetail() }
+                            } else {
+                                BackHandler { viewModel.backFromBankAppDetail() }
+                                BankAppDetailScreen(
+                                    state = state,
+                                    row = row,
+                                    onBack = viewModel::backFromBankAppDetail,
+                                    onStartEdit = { viewModel.startEditBankApp(row) },
+                                    onCancelEdit = viewModel::cancelBankAppForm,
+                                    onBankAppCustomerName = viewModel::onBankAppFieldCustomerName,
+                                    onBankAppPhone = viewModel::onBankAppFieldPhone,
+                                    onBankAppApplicationId = viewModel::onBankAppFieldApplicationId,
+                                    onBankAppCardName = viewModel::onBankAppFieldCardName,
+                                    onSaveBankApp = viewModel::saveBankApp
                                 )
                             }
                         }

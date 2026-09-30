@@ -27,7 +27,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-enum class Screen { LOGIN, QUEUE, DETAIL, SEARCH, CAMPAIGN, UNSUPPORTED_DEVICE }
+enum class Screen { LOGIN, QUEUE, DETAIL, BANK_APP_DETAIL, SEARCH, CAMPAIGN, UNSUPPORTED_DEVICE }
 
 /** Which form (if any) the Bank Apps tab is showing. */
 enum class BankAppFormMode { NONE, NEW, EDIT }
@@ -42,6 +42,7 @@ data class UiState(
     val profile: Profile? = null,
     val queue: List<Lead> = emptyList(),
     val selected: Lead? = null,
+    val selectedBankApp: BankApplication? = null, // shown on Screen.BANK_APP_DETAIL
 
     // --- campaign picker (backend/32_campaigns.sql) ---
     val campaigns: List<Campaign> = emptyList(),
@@ -389,13 +390,22 @@ class AppViewModel(
         }
     }
 
-    private fun refreshBankApps() {
-        viewModelScope.launch {
-            when (val r = repo.myBankApplications()) {
-                is Outcome.Ok -> _state.update { it.copy(bankApps = r.value, bankAppsLoaded = true) }
-                is Outcome.Err -> _state.update { it.copy(bankAppsError = r.message) }
-            }
-        }
+    // Tapping a row opens its own full screen (Screen.BANK_APP_DETAIL) —
+    // same "list is a summary, tap for the full record" pattern as
+    // openLead(), minus the assignment/call-attempt logic that's
+    // specific to leads and doesn't apply to a logged application.
+    fun openBankAppDetail(row: BankApplication) = _state.update {
+        it.copy(
+            screen = Screen.BANK_APP_DETAIL, selectedBankApp = row,
+            bankAppFormMode = BankAppFormMode.NONE, bankAppEditingId = null, bankAppsError = null
+        )
+    }
+
+    fun backFromBankAppDetail() = _state.update {
+        it.copy(
+            screen = Screen.QUEUE, selectedBankApp = null,
+            bankAppFormMode = BankAppFormMode.NONE, bankAppEditingId = null, bankAppsError = null
+        )
     }
 
     fun startNewBankApp() = _state.update {
@@ -477,7 +487,19 @@ class AppViewModel(
                 is Outcome.Err -> _state.update { it.copy(bankAppSaving = false, bankAppsError = result.message) }
                 is Outcome.Ok -> {
                     _state.update { it.copy(bankAppSaving = false, bankAppFormMode = BankAppFormMode.NONE, bankAppEditingId = null) }
-                    refreshBankApps()
+                    // Editing only ever happens from Screen.BANK_APP_DETAIL
+                    // (see startEditBankApp's call site in MainActivity) —
+                    // refresh the row it's showing with the just-reloaded
+                    // data instead of bouncing back to the list.
+                    when (val r = repo.myBankApplications()) {
+                        is Outcome.Ok -> _state.update {
+                            val refreshedSelected = if (!isNew) {
+                                r.value.find { row -> row.id == it.selectedBankApp?.id } ?: it.selectedBankApp
+                            } else it.selectedBankApp
+                            it.copy(bankApps = r.value, bankAppsLoaded = true, selectedBankApp = refreshedSelected)
+                        }
+                        is Outcome.Err -> _state.update { it.copy(bankAppsError = r.message) }
+                    }
                 }
             }
         }
