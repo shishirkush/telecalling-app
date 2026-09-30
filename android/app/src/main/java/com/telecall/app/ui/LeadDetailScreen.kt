@@ -67,7 +67,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import com.telecall.app.AppViewModel
 import com.telecall.app.UiState
 import com.telecall.app.call.ContactSaver
 import com.telecall.app.call.SimOption
@@ -134,8 +133,7 @@ fun LeadDetailScreen(
     // different number instead — e.g. the same customer calling back later
     // from another phone.
     fun openWhatsAppChat(target: String, cards: List<CardLink>) {
-        val greetingName = lead.name.takeIf { it.isNotBlank() && it != AppViewModel.UNKNOWN_NAME }
-        launchWhatsAppChat(context, target, cards, greetingName)
+        launchWhatsAppChat(context, target, cards)
     }
 
     val contactPerms = arrayOf(Manifest.permission.READ_CONTACTS, Manifest.permission.WRITE_CONTACTS)

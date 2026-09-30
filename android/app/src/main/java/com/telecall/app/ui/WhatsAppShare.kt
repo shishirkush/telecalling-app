@@ -54,23 +54,18 @@ private fun cardBlock(card: CardLink): String {
 }
 
 /**
- * Opens WhatsApp addressed to [target] with a message built from [cards],
- * optionally greeting [greetingName]. wa.me is the officially supported
- * deep link (Android 11+ package visibility already covers it — see the
- * manifest's VIEW/https <queries> entry, added for the same reason for the
- * Apply Card tab). Opens straight to the chat; the agent still taps Send
- * themselves on whatever they type or attach there, same as every other
- * outbound message this app hands off rather than sends silently.
+ * Opens WhatsApp addressed to [target] with a message built from [cards].
+ * wa.me is the officially supported deep link (Android 11+ package
+ * visibility already covers it — see the manifest's VIEW/https <queries>
+ * entry, added for the same reason for the Apply Card tab). Opens
+ * straight to the chat; the agent still taps Send themselves on whatever
+ * they type or attach there, same as every other outbound message this
+ * app hands off rather than sends silently.
  */
-fun launchWhatsAppChat(context: Context, target: String, cards: List<CardLink>, greetingName: String?) {
+fun launchWhatsAppChat(context: Context, target: String, cards: List<CardLink>) {
     var url = "https://wa.me/" + waNumber(target)
     if (cards.isNotEmpty()) {
-        val hasName = !greetingName.isNullOrBlank()
-        val greeting = (if (hasName) "Hi ${greetingName!!.trim().substringBefore(' ')}" else "Hi") + "! 👋"
-        val text = buildString {
-            append(greeting)
-            cards.forEach { append("\n\n"); append(cardBlock(it)) }
-        }
+        val text = cards.joinToString("\n\n") { cardBlock(it) }
         url += "?text=" + Uri.encode(text)
     }
     try {

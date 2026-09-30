@@ -128,7 +128,7 @@ fun LeadQueueScreen(
             leadMobile = null,
             onSend = { target, cards ->
                 showWhatsAppPicker = false
-                launchWhatsAppChat(context, target, cards, greetingName = null)
+                launchWhatsAppChat(context, target, cards)
             },
             onDismiss = { showWhatsAppPicker = false }
         )
