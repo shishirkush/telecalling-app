@@ -606,8 +606,28 @@ private fun BankAppsTab(
                     modifier = Modifier.padding(16.dp)
                 )
             }
-            else -> items(state.bankApps, key = { it.id }) { row ->
-                BankAppCard(row = row, onEdit = { onStartEditBankApp(row) })
+            else -> {
+                // Already sorted applied_at desc, id desc by the
+                // v_bank_applications query in LeadRepository — a header
+                // on every date change groups it datewise, latest to
+                // earliest, with no extra sort needed here.
+                var lastDate: String? = null
+                state.bankApps.forEach { row ->
+                    if (row.appliedAt != lastDate) {
+                        lastDate = row.appliedAt
+                        item(key = "ba-date-${row.appliedAt}") {
+                            Text(
+                                formatDob(row.appliedAt),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                        }
+                    }
+                    item(key = row.id) {
+                        BankAppCard(row = row, onEdit = { onStartEditBankApp(row) })
+                    }
+                }
             }
         }
     }
