@@ -27,7 +27,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private const val COMPETITOR_REPORT_MIN_INTERVAL_MS = 2 * 60 * 1000L
+private const val COMPETITOR_REPORT_MIN_INTERVAL_MS = 15 * 60 * 1000L
 
 enum class Screen { LOGIN, QUEUE, DETAIL, BANK_APP_DETAIL, SEARCH, CAMPAIGN, UNSUPPORTED_DEVICE }
 
@@ -873,8 +873,9 @@ class AppViewModel(
      * Runs on cold start AND on every return to the foreground (see
      * MainActivity.onResume) — a once-per-launch check could keep showing a
      * stale "installed" for as long as the process stayed alive in recents
-     * after the app was uninstalled. Throttled so the frequent
-     * call-and-return resumes don't each cost a network round trip.
+     * after the app was uninstalled. Throttled to once per 15 minutes so
+     * the frequent call-and-return resumes don't each cost a network
+     * round trip.
      */
     fun reportCompetitorApps(requireSignedIn: Boolean = true) {
         // The cold-start caller is already past sign-in but runs before the
