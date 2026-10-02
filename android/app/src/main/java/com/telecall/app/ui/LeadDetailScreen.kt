@@ -107,6 +107,7 @@ fun LeadDetailScreen(
     val callPerms = arrayOf(
         Manifest.permission.CALL_PHONE,
         Manifest.permission.READ_PHONE_STATE,
+        Manifest.permission.READ_CALL_LOG,
         Manifest.permission.SEND_SMS
     )
 

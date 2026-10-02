@@ -950,6 +950,14 @@ class AppViewModel(
                 is Outcome.Ok -> {
                     _state.update { it.copy(saving = false, info = "Saved.") }
                     repo.clearPendingCall()
+                    // Telemetry only: never blocks or fails the save above.
+                    // Looks back a little before the confirmed attempt time,
+                    // since that timestamp is taken after the Call tap.
+                    val since = (s.callAttemptConfirmedAt ?: 0L) - 60_000L
+                    viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        val secs = lastOutgoingCallDurationSecs(getApplication(), lead.mobile, since)
+                        if (secs != null) runCatching { repo.reportCallDuration(lead.id, secs) }
+                    }
                     // Cancel first regardless of the new status — a lead that
                     // was Call Later and is now something else must not still
                     // ring later, and one that's Call Later again gets a

@@ -310,10 +310,13 @@ cache of the newest row. Never `UPDATE` a disposition; insert another.
 **Stale locks expire after 30 minutes** so an agent who kills the app mid-call
 doesn't strand records.
 
-**`READ_CALL_LOG` is not requested, on purpose.** Google restricts it to
-default-dialer apps and rejects telecalling apps that ask. This is why call
-duration is not captured. If duration becomes a requirement, the answer is
-server-side calling (Exotel / Knowlarity / Twilio), not a permission.
+**`READ_CALL_LOG` IS now requested (v1.17.0), by explicit owner decision,**
+reversing the old rule. It is used narrowly: after a save, `CallDuration.kt`
+reads only the DURATION of the latest outgoing call to that lead and sends just
+that number via `report_call_duration()` (`backend/38_call_duration.sql`).
+Google restricts this permission and may require a permissions declaration or
+reject the release; server-side calling (Exotel / Knowlarity / Twilio) remains
+the fallback if Play refuses.
 
 **PII is shown unmasked** — an explicit product decision, against my
 recommendation. The compensating control is `lead_access_log`, written on every
@@ -1304,7 +1307,8 @@ next step if manual `gh release create` becomes a chore, not done yet.
   `ici_cr_lmt` must stay out of its signature.
 - Never remove `lead_edit_log` or stop writing to it. It is the only record of
   what a field said before an agent changed it.
-- Never add `READ_CALL_LOG`.
+- `READ_CALL_LOG` is permitted only for reading the single just-placed call's
+  duration (see section 5 note). Do not read or upload any other call-log data.
 - Never remove the `security definer` ownership check inside
   `save_disposition()` — it is the only thing stopping an agent from posting
   outcomes against arbitrary lead IDs.

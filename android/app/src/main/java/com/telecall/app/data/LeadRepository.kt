@@ -303,6 +303,21 @@ class LeadRepository(private val client: SupabaseClient) {
     }
 
     /**
+     * The phone's own recorded duration for the call just placed to this
+     * lead — see backend/38_call_duration.sql. Fire-and-forget telemetry:
+     * it must never be able to affect saving an outcome.
+     */
+    suspend fun reportCallDuration(leadId: Long, durationSecs: Int) {
+        retryRpc(
+            "report_call_duration",
+            buildJsonObject {
+                put("p_lead_id", leadId)
+                put("p_duration_secs", durationSecs)
+            }.toString()
+        )
+    }
+
+    /**
      * Reports what actually happened when the Apply Card SMS was sent.
      * Agents work remotely — this is the only way to see a real-device
      * failure (denied permission, no service, radio off) without ever

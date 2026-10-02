@@ -10,12 +10,15 @@
                         it we cannot tell single-SIM from dual-SIM and cannot
                         target a specific SIM.
 
-      NOTE: we deliberately do NOT request READ_CALL_LOG. Google Play restricts
-      it to default-dialer apps, and requesting it is the fastest way to get a
-      telecalling app rejected. Call duration is therefore not auto-captured.
+      READ_CALL_LOG   : reads ONLY the duration of the call just placed to the
+                        lead being saved (CallDuration.kt, backend/38). Added
+                        knowingly, reversing the earlier rule against it:
+                        Google Play restricts this permission and may require
+                        a permissions declaration or reject the release.
     -->
     <uses-permission android:name="android.permission.CALL_PHONE" />
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
 
     <!--
       SEND_SMS: alongside placing the call, the app texts the Apply Card
