@@ -157,6 +157,7 @@ class MainActivity : ComponentActivity() {
         // The agent may have granted the Phone permission from Settings while
         // the app was backgrounded; re-read the SIM list on the way back in.
         viewModel.refreshSims()
+        viewModel.reportCompetitorApps()
     }
 
     // MainActivity is singleTask (see AndroidManifest.xml) specifically so a

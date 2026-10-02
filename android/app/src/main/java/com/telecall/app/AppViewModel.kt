@@ -27,6 +27,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+private const val COMPETITOR_REPORT_MIN_INTERVAL_MS = 2 * 60 * 1000L
+
 enum class Screen { LOGIN, QUEUE, DETAIL, BANK_APP_DETAIL, SEARCH, CAMPAIGN, UNSUPPORTED_DEVICE }
 
 /** Which form (if any) the Bank Apps tab is showing. */
@@ -342,10 +344,7 @@ class AppViewModel(
         // Same "telemetry only, never blocks the real flow" tier as app
         // version above — see backend/35_competitor_app_check.sql and
         // CompetitorAppCheck.kt.
-        viewModelScope.launch {
-            val found = detectCompetitorApps(getApplication())
-            runCatching { repo.reportCompetitorApps(found) }
-        }
+        reportCompetitorApps(requireSignedIn = false)
         // No login-log row here any more: "login" is written by signIn() for
         // a real password sign-in, and a relaunch with a saved session is
         // logged as a throttled "app_opened" from init — see
@@ -865,6 +864,28 @@ class AppViewModel(
                     }
                 }
             }
+        }
+    }
+
+    private var lastCompetitorReportAt = 0L
+
+    /**
+     * Runs on cold start AND on every return to the foreground (see
+     * MainActivity.onResume) — a once-per-launch check could keep showing a
+     * stale "installed" for as long as the process stayed alive in recents
+     * after the app was uninstalled. Throttled so the frequent
+     * call-and-return resumes don't each cost a network round trip.
+     */
+    fun reportCompetitorApps(requireSignedIn: Boolean = true) {
+        // The cold-start caller is already past sign-in but runs before the
+        // profile finishes loading, so it opts out of this guard.
+        if (requireSignedIn && _state.value.profile == null) return
+        val now = System.currentTimeMillis()
+        if (now - lastCompetitorReportAt < COMPETITOR_REPORT_MIN_INTERVAL_MS) return
+        lastCompetitorReportAt = now
+        viewModelScope.launch {
+            val found = detectCompetitorApps(getApplication())
+            runCatching { repo.reportCompetitorApps(found) }
         }
     }
 
