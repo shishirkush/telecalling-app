@@ -323,7 +323,7 @@ recommendation. The compensating control is `lead_access_log`, written on every
 lead open. `MASK_SENSITIVE` in `android/app/build.gradle.kts` flips it; the
 masking logic already exists in `ui/Format.kt`.
 
-**`claim_next_lead()`'s final tiebreaker is `random()`, not `id asc`.**
+**`claim_next_lead()`'s final tiebreaker is `leads.random_rank` (a random value assigned ONCE at insert — `backend/39_precomputed_random_rank.sql` — so uploads randomise a batch up front and Next lead no longer sorts the pool; it was averaging 1.16s), not `id asc`.**
 Everything above it in the `ORDER BY` (due callbacks first, then
 untouched-before-retried, then least-recently-touched) is unchanged —
 only leads that are otherwise equal get shuffled. This stops agents
