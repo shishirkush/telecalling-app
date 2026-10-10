@@ -318,6 +318,18 @@ Google restricts this permission and may require a permissions declaration or
 reject the release; server-side calling (Exotel / Knowlarity / Twilio) remains
 the fallback if Play refuses.
 
+**Ring time (v1.17.1).** The call log only has TALK time (0s for any unanswered
+call), so `CallStateTracker.kt` also listens to the phone's call state
+(`READ_PHONE_STATE`, already requested for SIM detection) from the Call tap:
+OFFHOOK = dialling began, IDLE = call ended → `call_attempts.dial_secs`, sent
+with the talk time through `report_call_timing()` (`backend/40_call_timing_ring.sql`).
+Ring time = `dial_secs - duration_secs`, computed in the dashboard's Agent
+report (red when a No Answer rang under 10s). In-memory only, two timestamps,
+no numbers/audio. Android app only — a web page can't observe call state, so
+web-app agents have no ring time. The save hook now waits up to ~90s for the
+call to end instead of looking the call log up once (the log row only appears
+after hang-up).
+
 **PII is shown unmasked** — an explicit product decision, against my
 recommendation. The compensating control is `lead_access_log`, written on every
 lead open. `MASK_SENSITIVE` in `android/app/build.gradle.kts` flips it; the

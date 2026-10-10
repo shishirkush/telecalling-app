@@ -806,6 +806,9 @@ class AppViewModel(
     }
 
     private fun dial(number: String, sim: SimOption?) {
+        // Armed BEFORE dialling so the OFFHOOK at dial start isn't missed —
+        // this is what lets the report show how long the call actually rang.
+        _state.value.selected?.id?.let { CallStateTracker.arm(getApplication(), it) }
         val result = simManager.placeCall(number, sim)
         val reachedOut = result is SimManager.CallResult.Dialled ||
             result is SimManager.CallResult.OpenedDialer
@@ -955,8 +958,29 @@ class AppViewModel(
                     // since that timestamp is taken after the Call tap.
                     val since = (s.callAttemptConfirmedAt ?: 0L) - 60_000L
                     viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                        val secs = lastOutgoingCallDurationSecs(getApplication(), lead.mobile, since)
-                        if (secs != null) runCatching { repo.reportCallDuration(lead.id, secs) }
+                        // The agent can save before the call has ended (the
+                        // floor is 30s), and the call log row only appears once
+                        // it has — so wait, bounded, for the end of the call
+                        // instead of looking once and giving up. Stops when the
+                        // call is over and both readings are in (or, after a few
+                        // extra tries, whichever we managed to get), or after 90s.
+                        var secs: Int? = null
+                        var dial: Int? = null
+                        var extraTries = 0
+                        for (i in 0 until 30) {
+                            dial = CallStateTracker.dialSecs(lead.id)
+                            secs = lastOutgoingCallDurationSecs(getApplication(), lead.mobile, since)
+                            val tracking = CallStateTracker.isTracking(lead.id)
+                            if (dial != null) {
+                                if (secs != null || ++extraTries >= 3) break
+                            } else if (!tracking && (secs != null || i >= 3)) {
+                                break // nothing is being timed; the call log is all there is
+                            }
+                            delay(3000)
+                        }
+                        if (secs != null || dial != null) {
+                            runCatching { repo.reportCallTiming(lead.id, secs, dial) }
+                        }
                     }
                     // Cancel first regardless of the new status — a lead that
                     // was Call Later and is now something else must not still

@@ -307,6 +307,22 @@ class LeadRepository(private val client: SupabaseClient) {
      * lead — see backend/38_call_duration.sql. Fire-and-forget telemetry:
      * it must never be able to affect saving an outcome.
      */
+    /**
+     * Talk time (call log) and dial-to-hangup time (call state), either of
+     * which may be unknown — see backend/40_call_timing_ring.sql. Same
+     * fire-and-forget rule as [reportCallDuration].
+     */
+    suspend fun reportCallTiming(leadId: Long, durationSecs: Int?, dialSecs: Int?) {
+        retryRpc(
+            "report_call_timing",
+            buildJsonObject {
+                put("p_lead_id", leadId)
+                put("p_duration_secs", durationSecs)
+                put("p_dial_secs", dialSecs)
+            }.toString()
+        )
+    }
+
     suspend fun reportCallDuration(leadId: Long, durationSecs: Int) {
         retryRpc(
             "report_call_duration",

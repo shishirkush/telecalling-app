@@ -27,6 +27,7 @@
   <li><strong>Device identifiers</strong> (such as device model or ID), used for app functionality and troubleshooting.</li>
   <li><strong>Presence of specific competing apps</strong>: the app checks whether a small, fixed list of named competing financial-referral apps (currently GroMo, Zet, and MyMoneyMantra) is installed on the device, and reports this to the Company. This check is limited to that named list only — it does not read, list, or report any other apps installed on the device.</li>
   <li><strong>Call duration</strong>: after an agent places a call to an assigned lead from the app, the app reads the duration recorded by the phone for that one call (using the Call Log permission) and reports only that duration, in seconds, to the Company. It does not read, store, or report any other call-log entries, phone numbers, or call history.</li>
+  <li><strong>Call timing</strong>: from the moment an agent taps Call on an assigned lead until that call ends, the app observes the phone's call state (using the Phone permission) and reports only how many seconds the call lasted from dialling to hang-up. It does not record call audio, and does not read or report phone numbers or any other call activity.</li>
 </ul>
 
 <h2>How We Use Information</h2>
