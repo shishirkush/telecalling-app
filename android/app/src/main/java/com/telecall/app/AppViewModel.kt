@@ -824,17 +824,8 @@ class AppViewModel(
             is SimManager.CallResult.Failed ->
                 _state.update { it.copy(error = result.message) }
         }
-        // Rides along with any contact attempt that had a real number to
-        // work with — including the dialer-fallback path, since the agent
-        // is still reaching out either way. No-ops quietly without
-        // SEND_SMS granted; never affects the call result above.
-        // Skipped while the admin has the Apply Card SMS switched off
-        // (backend/44); the last answer is remembered, so it also holds
-        // offline. The flag is refreshed on every resume, below.
-        if (result !is SimManager.CallResult.InvalidNumber && repo.applyCardSmsEnabled) {
-            simManager.sendApplyCardSms(number, sim, _state.value.selected?.id)
-        }
-        viewModelScope.launch { runCatching { repo.refreshApplyCardSmsFlag() } }
+        // The automatic Apply Card text that used to go out here was
+        // discontinued in 1.17.2 (admin decision, 2026-10-20).
         // Records the attempt server-side — save_disposition() refuses to
         // accept an outcome for this lead until this lands, and then not
         // for another 30 seconds after (see

@@ -101,14 +101,12 @@ fun LeadDetailScreen(
     onSaveDetails: () -> Unit
 ) {
     val context = LocalContext.current
-    // SEND_SMS rides along here so it's one prompt, not two — the agent
-    // sees a single system dialog covering calling and the Apply Card text
-    // the first time they tap a number, never again after that.
+    // One system prompt the first time the agent taps a number. (SEND_SMS was
+    // dropped in 1.17.2 along with the automatic Apply Card text.)
     val callPerms = arrayOf(
         Manifest.permission.CALL_PHONE,
         Manifest.permission.READ_PHONE_STATE,
-        Manifest.permission.READ_CALL_LOG,
-        Manifest.permission.SEND_SMS
+        Manifest.permission.READ_CALL_LOG
     )
 
     // Whatever the user answers, we proceed: with permission we dial straight

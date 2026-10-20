@@ -21,15 +21,11 @@
     <uses-permission android:name="android.permission.READ_CALL_LOG" />
 
     <!--
-      SEND_SMS: alongside placing the call, the app texts the Apply Card
-      link (cardadda.in) to the lead's number — see
-      SimManager.sendApplyCardSms(). Requested in the same prompt as
-      CALL_PHONE/READ_PHONE_STATE (LeadDetailScreen's callPerms array), so
-      it's one ask, not a separate one. Sent through the normal platform
-      SmsManager API — it lands in the phone's own Sent folder like any
-      other text this device sends; nothing about it is hidden.
+      SEND_SMS was removed in 1.17.2: the automatic Apply Card text to
+      customers was discontinued (admin decision, 2026-10-20 — volume too
+      low to matter, and it hit the carrier's daily SMS cap). The app no
+      longer asks for, or uses, the SMS permission.
     -->
-    <uses-permission android:name="android.permission.SEND_SMS" />
 
     <!--
       Callback reminders (Call Later): a local notification fired by
