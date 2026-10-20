@@ -25,7 +25,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Chat
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
@@ -236,11 +235,6 @@ fun LeadDetailScreen(
 
             // ---------- WhatsApp action ----------
             WhatsAppButton(onClick = { showCardPicker = true })
-
-            Spacer(Modifier.height(10.dp))
-
-            // ---------- Job message (opens the messaging app, agent taps Send) ----------
-            JobMessageButton(onClick = { openJobMessage(context, lead.mobile) })
 
             Spacer(Modifier.height(16.dp))
 
@@ -523,38 +517,6 @@ private fun WhatsAppButton(onClick: () -> Unit) {
                 text = "WhatsApp",
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSecondaryContainer
-            )
-        }
-    }
-}
-
-/** Opens the messaging app with the hiring message ready for this lead — see [openJobMessage]. */
-@Composable
-private fun JobMessageButton(onClick: () -> Unit) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.tertiaryContainer
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-    ) {
-        Row(
-            modifier = Modifier.padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                Icons.AutoMirrored.Filled.Send,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onTertiaryContainer,
-                modifier = Modifier.size(22.dp)
-            )
-            Spacer(Modifier.width(12.dp))
-            Text(
-                text = "Send job message",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onTertiaryContainer
             )
         }
     }
