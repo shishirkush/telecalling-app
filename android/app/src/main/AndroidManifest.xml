@@ -21,8 +21,7 @@
     <uses-permission android:name="android.permission.READ_CALL_LOG" />
 
     <!--
-      SEND_SMS: used ONLY by the recruitment batch (Queue screen → paper-plane
-      icon → "Send to next 100", backend/46_recruit_sms.sql): the agent taps
+      SEND_SMS: used ONLY by the recruitment batch (Queue screen → "J" button → "Send to next batch", backend/46_recruit_sms.sql): the agent taps
       once and the app texts the admin-set hiring message to the next batch
       from a separate, admin-loaded contact list. The automatic Apply Card
       text to credit-card leads stays discontinued (2026-10-20). Requested

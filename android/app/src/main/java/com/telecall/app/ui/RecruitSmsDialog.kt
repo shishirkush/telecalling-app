@@ -93,7 +93,7 @@ fun RecruitSmsDialog(
                         PackageManager.PERMISSION_GRANTED
                     if (granted) onStart() else permissionLauncher.launch(Manifest.permission.SEND_SMS)
                 }
-            ) { Text(if (state.recruitSending) "Sending…" else "Send to next 100") }
+            ) { Text(if (state.recruitSending) "Sending…" else "Send to next batch") }
         },
         dismissButton = {
             TextButton(onClick = onClose, enabled = !state.recruitSending) { Text("Close") }

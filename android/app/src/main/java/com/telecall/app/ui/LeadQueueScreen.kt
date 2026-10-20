@@ -29,7 +29,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.Logout
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Folder
@@ -173,7 +172,7 @@ fun LeadQueueScreen(
                         Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = "WhatsApp any number")
                     }
                     IconButton(onClick = onOpenRecruit) {
-                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send job message batch")
+                        Text("J", style = MaterialTheme.typography.titleLarge)
                     }
                     IconButton(onClick = onSwitchCampaign) {
                         Icon(Icons.Filled.Folder, contentDescription = "Switch campaign")
