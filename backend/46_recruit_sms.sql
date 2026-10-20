@@ -95,16 +95,18 @@ begin
   if not exists (select 1 from public.profiles where id = auth.uid() and role = 'agent' and active) then
     raise exception 'agents only';
   end if;
-  select * into s from public.recruit_settings where id = 1;
+  -- (the function's OUT column "id" would clash with an unqualified id here)
+  select * into s from public.recruit_settings rs where rs.id = 1;
   if not s.enabled then
     raise exception 'Recruitment SMS is switched off.';
   end if;
 
   -- A batch that was claimed but never reported back (app killed, phone off)
-  -- goes back in the pool after 3 hours.
+  -- goes back in the pool after 30 minutes (a full batch takes ~5-10 min at the
+  -- app's pace; was 3 hours until 2026-10-20).
   update public.recruit_contacts
      set status = 'pending', claimed_by = null, claimed_at = null
-   where status = 'claimed' and claimed_at < now() - interval '3 hours';
+   where status = 'claimed' and claimed_at < now() - interval '30 minutes';
 
   select count(*) into used from public.recruit_contacts c
    where c.claimed_by = auth.uid()

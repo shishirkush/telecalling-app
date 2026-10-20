@@ -882,7 +882,7 @@ class AppViewModel(
     // -----------------------------------------------------------------
     fun openRecruit() {
         if (_state.value.recruitSending) { _state.update { it.copy(recruitDialogOpen = true) }; return }
-        _state.update { it.copy(recruitDialogOpen = true, recruitLoading = true, recruitMessage = null, recruitTotal = 0, recruitDone = 0, recruitSentOk = 0) }
+        _state.update { it.copy(recruitDialogOpen = true, recruitLoading = true, recruitMessage = null, recruitTotal = 0, recruitDone = 0, recruitSentOk = 0, sims = simManager.availableSims()) }
         viewModelScope.launch {
             when (val r = repo.recruitInfo()) {
                 is Outcome.Ok -> _state.update { it.copy(recruitInfo = r.value, recruitLoading = false) }
@@ -893,7 +893,7 @@ class AppViewModel(
 
     fun closeRecruit() = _state.update { it.copy(recruitDialogOpen = false) }
 
-    fun startRecruitBatch() {
+    fun startRecruitBatch(sim: SimOption?) {
         if (_state.value.recruitSending) return
         _state.update { it.copy(recruitSending = true, recruitMessage = null, recruitTotal = 0, recruitDone = 0, recruitSentOk = 0) }
         viewModelScope.launch {
@@ -906,16 +906,31 @@ class AppViewModel(
                     var consecutiveFailures = 0
                     var stoppedEarly: String? = null
                     for ((i, c) in batch.withIndex()) {
-                        val outcome = simManager.sendTextAndAwait(c.mobile, c.message)
+                        val outcome = simManager.sendTextAndAwait(c.mobile, c.message, sim)
                         pending.add(c.id to outcome)
                         consecutiveFailures = if (outcome == "sent") 0 else consecutiveFailures + 1
                         _state.update { it.copy(recruitDone = i + 1, recruitSentOk = it.recruitSentOk + if (outcome == "sent") 1 else 0) }
                         if (outcome == "permission_denied") { stoppedEarly = "SMS permission was not granted."; break }
                         // Stop on a run of failures (SIM out of balance, daily limit hit,
                         // no signal) instead of burning through the rest of the batch.
-                        if (consecutiveFailures >= 5) { stoppedEarly = "Stopped: 5 messages in a row failed (SIM limit, balance or signal). The rest were not sent."; break }
-                        if (pending.size >= 20) { val chunk = pending.toList(); pending.clear(); runCatching { repo.reportRecruitResults(chunk) } }
-                        delay(1500)
+                        if (consecutiveFailures >= 5) {
+                            stoppedEarly = "Stopped: 5 messages in a row failed (SIM limit, balance or signal). The rest were not sent."
+                            // A run like that points at the SIM, not at those numbers: hand them back too.
+                            for (k in pending.indices.reversed().take(consecutiveFailures)) {
+                                pending[k] = pending[k].first to pending[k].second.let { why -> "released:$why" }
+                            }
+                            break
+                        }
+                        // Only flush while no failure streak is open, so a streak that turns
+                        // out to be systemic can still be handed back (above).
+                        if (pending.size >= 20 && consecutiveFailures == 0) { val chunk = pending.toList(); pending.clear(); runCatching { repo.reportRecruitResults(chunk) } }
+                        // ~3 s between texts keeps us under Android's "many messages" prompt
+                        // threshold (30/min) and gentler on the carrier; wait longer after a failure.
+                        delay(if (outcome == "sent") 3000L else 6000L)
+                    }
+                    // Contacts we never attempted go back to the list and don't use up the daily cap.
+                    if (stoppedEarly != null) {
+                        for (b in batch.drop(_state.value.recruitDone)) pending.add(b.id to "released:not_attempted")
                     }
                     if (pending.isNotEmpty()) runCatching { repo.reportRecruitResults(pending.toList()) }
                     val info = (repo.recruitInfo() as? Outcome.Ok)?.value

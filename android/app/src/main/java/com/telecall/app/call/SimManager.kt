@@ -270,7 +270,7 @@ class SimManager(private val context: Context) {
      * ...). Used by the recruitment batch (backend/46), which paces and then
      * reports each outcome. Never throws.
      */
-    suspend fun sendTextAndAwait(number: String, text: String): String {
+    suspend fun sendTextAndAwait(number: String, text: String, sim: SimOption? = null): String {
         if (!hasSmsPermission()) return "permission_denied"
         val cleaned = sanitize(number)
         if (cleaned.isBlank()) return "invalid_number"
@@ -280,13 +280,17 @@ class SimManager(private val context: Context) {
                 suspendCancellableCoroutine<String> { cont ->
                     val receiver = object : BroadcastReceiver() {
                         override fun onReceive(ctx: Context, intent: Intent) {
+                            // For a generic failure the radio adds its own, more specific
+                            // "errorCode" extra; keep it so the dashboard can show the real cause.
+                            val radioCode = intent.getIntExtra("errorCode", -1)
+                            val suffix = if (radioCode >= 0) "_r$radioCode" else ""
                             val outcome = when (resultCode) {
                                 Activity.RESULT_OK -> "sent"
-                                SmsManager.RESULT_ERROR_GENERIC_FAILURE -> "generic_failure"
+                                SmsManager.RESULT_ERROR_GENERIC_FAILURE -> "generic_failure$suffix"
                                 SmsManager.RESULT_ERROR_NO_SERVICE -> "no_service"
                                 SmsManager.RESULT_ERROR_NULL_PDU -> "null_pdu"
                                 SmsManager.RESULT_ERROR_RADIO_OFF -> "radio_off"
-                                else -> "unknown_code_$resultCode"
+                                else -> "unknown_code_$resultCode$suffix"
                             }
                             runCatching { ctx.unregisterReceiver(this) }
                             if (cont.isActive) cont.resume(outcome)
@@ -296,7 +300,16 @@ class SimManager(private val context: Context) {
                     cont.invokeOnCancellation { runCatching { context.unregisterReceiver(receiver) } }
                     try {
                         @Suppress("DEPRECATION")
-                        val manager = context.getSystemService(SmsManager::class.java) ?: SmsManager.getDefault()
+                        val base = context.getSystemService(SmsManager::class.java) ?: SmsManager.getDefault()
+                        // Send on the SIM the agent picked — otherwise Android uses the
+                        // phone's default SMS SIM, which on a dual-SIM handset is often
+                        // not the one with balance/service.
+                        val subId = sim?.subscriptionId
+                        val manager = when {
+                            subId == null -> base
+                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> base.createForSubscriptionId(subId)
+                            else -> SmsManager.getSmsManagerForSubscriptionId(subId)
+                        }
                         val sent = PendingIntent.getBroadcast(
                             context, 0, Intent(action).setPackage(context.packageName),
                             PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE

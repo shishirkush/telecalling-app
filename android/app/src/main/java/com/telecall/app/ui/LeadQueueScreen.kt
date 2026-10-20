@@ -101,7 +101,7 @@ fun LeadQueueScreen(
     onSwitchCampaign: () -> Unit,
     onOpenRecruit: () -> Unit,
     onCloseRecruit: () -> Unit,
-    onStartRecruit: () -> Unit,
+    onStartRecruit: (com.telecall.app.call.SimOption?) -> Unit,
     onOpenBankAppsTab: () -> Unit,
     onStartNewBankApp: () -> Unit,
     onOpenBankAppDetail: (BankApplication) -> Unit,
