@@ -113,6 +113,16 @@ class SupabaseClient(context: Context) {
      * app_opened) recorded — the reference point for the 30-minute
      * throttle on "app_opened". See LeadRepository.logAppOpenedIfDue().
      */
+    /**
+     * Admin's remote switch for the Apply Card SMS (backend/44). Remembered
+     * across launches so a phone that is offline when the admin flips it
+     * still honours the last answer it got. Default true: a fresh install
+     * that has never reached the server behaves as before.
+     */
+    var applyCardSmsEnabled: Boolean
+        get() = prefs.getBoolean(KEY_APPLY_CARD_SMS, true)
+        set(value) { prefs.edit().putBoolean(KEY_APPLY_CARD_SMS, value).apply() }
+
     var lastLoginLogAt: Long
         get() = prefs.getLong(KEY_LAST_LOGIN_LOG_AT, 0L)
         set(value) { prefs.edit().putLong(KEY_LAST_LOGIN_LOG_AT, value).apply() }
@@ -345,6 +355,7 @@ class SupabaseClient(context: Context) {
         private const val KEY_PENDING_CALL = "pending_call_json"
         private const val KEY_SESSION_TOKEN = "active_session_token"
         private const val KEY_LAST_LOGIN_LOG_AT = "last_login_log_at"
+        private const val KEY_APPLY_CARD_SMS = "apply_card_sms_enabled"
         const val SESSION_EXPIRED = "Your session expired. Please sign in again."
         private val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
     }

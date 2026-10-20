@@ -828,9 +828,13 @@ class AppViewModel(
         // work with — including the dialer-fallback path, since the agent
         // is still reaching out either way. No-ops quietly without
         // SEND_SMS granted; never affects the call result above.
-        if (result !is SimManager.CallResult.InvalidNumber) {
+        // Skipped while the admin has the Apply Card SMS switched off
+        // (backend/44); the last answer is remembered, so it also holds
+        // offline. The flag is refreshed on every resume, below.
+        if (result !is SimManager.CallResult.InvalidNumber && repo.applyCardSmsEnabled) {
             simManager.sendApplyCardSms(number, sim, _state.value.selected?.id)
         }
+        viewModelScope.launch { runCatching { repo.refreshApplyCardSmsFlag() } }
         // Records the attempt server-side — save_disposition() refuses to
         // accept an outcome for this lead until this lands, and then not
         // for another 30 seconds after (see
@@ -884,6 +888,9 @@ class AppViewModel(
         // The cold-start caller is already past sign-in but runs before the
         // profile finishes loading, so it opts out of this guard.
         if (requireSignedIn && _state.value.profile == null) return
+        // Cheap, so it rides along on every launch/resume instead of the
+        // 15-minute throttle below: an SMS switch should take effect fast.
+        viewModelScope.launch { runCatching { repo.refreshApplyCardSmsFlag() } }
         val now = System.currentTimeMillis()
         if (now - lastCompetitorReportAt < COMPETITOR_REPORT_MIN_INTERVAL_MS) return
         lastCompetitorReportAt = now

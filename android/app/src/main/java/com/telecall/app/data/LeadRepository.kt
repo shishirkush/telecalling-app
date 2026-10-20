@@ -323,6 +323,23 @@ class LeadRepository(private val client: SupabaseClient) {
         )
     }
 
+    /** Whether the admin currently allows the Apply Card SMS (backend/44). */
+    val applyCardSmsEnabled: Boolean get() = client.applyCardSmsEnabled
+
+    /**
+     * Asks the server for the admin's SMS switch and remembers the answer.
+     * A failed or unreadable response leaves the last known value alone.
+     */
+    suspend fun refreshApplyCardSmsFlag() {
+        val r = client.rpc("apply_card_sms_enabled")
+        if (r is Outcome.Ok) {
+            when (r.value.trim()) {
+                "true" -> client.applyCardSmsEnabled = true
+                "false" -> client.applyCardSmsEnabled = false
+            }
+        }
+    }
+
     suspend fun reportCallDuration(leadId: Long, durationSecs: Int) {
         retryRpc(
             "report_call_duration",
