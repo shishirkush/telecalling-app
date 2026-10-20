@@ -208,3 +208,20 @@ sealed class Outcome<out T> {
     data class Ok<T>(val value: T) : Outcome<T>()
     data class Err(val message: String) : Outcome<Nothing>()
 }
+
+/** Admin's recruitment-SMS settings as seen by an agent — backend/46_recruit_sms.sql. */
+@Serializable
+data class RecruitInfo(
+    val enabled: Boolean = false,
+    val message: String = "",
+    @SerialName("remaining_today") val remainingToday: Int = 0,
+    @SerialName("pending_total") val pendingTotal: Int = 0
+)
+
+/** One number to text from a claimed batch. */
+@Serializable
+data class RecruitContact(
+    val id: Long,
+    val mobile: String,
+    val message: String = ""
+)

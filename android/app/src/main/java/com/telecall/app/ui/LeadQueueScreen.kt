@@ -29,6 +29,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Folder
@@ -99,6 +100,9 @@ fun LeadQueueScreen(
     onContactNumberInputChange: (String) -> Unit,
     onSaveContactNumber: () -> Unit,
     onSwitchCampaign: () -> Unit,
+    onOpenRecruit: () -> Unit,
+    onCloseRecruit: () -> Unit,
+    onStartRecruit: () -> Unit,
     onOpenBankAppsTab: () -> Unit,
     onStartNewBankApp: () -> Unit,
     onOpenBankAppDetail: (BankApplication) -> Unit,
@@ -138,6 +142,10 @@ fun LeadQueueScreen(
         )
     }
 
+    if (state.recruitDialogOpen) {
+        RecruitSmsDialog(state = state, onClose = onCloseRecruit, onStart = onStartRecruit)
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -163,6 +171,9 @@ fun LeadQueueScreen(
                     }
                     IconButton(onClick = { showWhatsAppPicker = true }) {
                         Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = "WhatsApp any number")
+                    }
+                    IconButton(onClick = onOpenRecruit) {
+                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send job message batch")
                     }
                     IconButton(onClick = onSwitchCampaign) {
                         Icon(Icons.Filled.Folder, contentDescription = "Switch campaign")

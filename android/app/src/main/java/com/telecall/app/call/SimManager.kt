@@ -18,6 +18,9 @@ import android.telephony.SubscriptionInfo
 import android.telephony.SubscriptionManager
 import android.util.Log
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.coroutines.resume
 
 /**
  * One dialable SIM.
@@ -259,6 +262,61 @@ class SimManager(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "sendApplyCardSms failed for $cleaned", e)
             onSmsOutcome?.invoke(leadId, number, "exception: ${e.message}")
+        }
+    }
+
+    /**
+     * Sends one text and WAITS for the radio's result ("sent", "no_service",
+     * ...). Used by the recruitment batch (backend/46), which paces and then
+     * reports each outcome. Never throws.
+     */
+    suspend fun sendTextAndAwait(number: String, text: String): String {
+        if (!hasSmsPermission()) return "permission_denied"
+        val cleaned = sanitize(number)
+        if (cleaned.isBlank()) return "invalid_number"
+        val action = "com.telecall.app.RECRUIT_SMS_" + System.nanoTime()
+        return try {
+            withTimeoutOrNull(25_000L) {
+                suspendCancellableCoroutine<String> { cont ->
+                    val receiver = object : BroadcastReceiver() {
+                        override fun onReceive(ctx: Context, intent: Intent) {
+                            val outcome = when (resultCode) {
+                                Activity.RESULT_OK -> "sent"
+                                SmsManager.RESULT_ERROR_GENERIC_FAILURE -> "generic_failure"
+                                SmsManager.RESULT_ERROR_NO_SERVICE -> "no_service"
+                                SmsManager.RESULT_ERROR_NULL_PDU -> "null_pdu"
+                                SmsManager.RESULT_ERROR_RADIO_OFF -> "radio_off"
+                                else -> "unknown_code_$resultCode"
+                            }
+                            runCatching { ctx.unregisterReceiver(this) }
+                            if (cont.isActive) cont.resume(outcome)
+                        }
+                    }
+                    ContextCompat.registerReceiver(context, receiver, IntentFilter(action), ContextCompat.RECEIVER_NOT_EXPORTED)
+                    cont.invokeOnCancellation { runCatching { context.unregisterReceiver(receiver) } }
+                    try {
+                        @Suppress("DEPRECATION")
+                        val manager = context.getSystemService(SmsManager::class.java) ?: SmsManager.getDefault()
+                        val sent = PendingIntent.getBroadcast(
+                            context, 0, Intent(action).setPackage(context.packageName),
+                            PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+                        )
+                        val parts = manager.divideMessage(text)
+                        if (parts.size > 1) {
+                            val intents = ArrayList<PendingIntent?>(parts.size)
+                            repeat(parts.size) { i -> intents.add(if (i == parts.size - 1) sent else null) }
+                            manager.sendMultipartTextMessage(cleaned, null, parts, intents, null)
+                        } else {
+                            manager.sendTextMessage(cleaned, null, text, sent, null)
+                        }
+                    } catch (e: Exception) {
+                        runCatching { context.unregisterReceiver(receiver) }
+                        if (cont.isActive) cont.resume("exception: ${e.message}")
+                    }
+                }
+            } ?: "timeout"
+        } catch (e: Exception) {
+            "exception: ${e.message}"
         }
     }
 

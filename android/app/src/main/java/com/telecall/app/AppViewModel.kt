@@ -16,6 +16,7 @@ import com.telecall.app.data.LeadQuality
 import com.telecall.app.data.LeadRepository
 import com.telecall.app.data.Outcome
 import com.telecall.app.data.Profile
+import com.telecall.app.data.RecruitInfo
 import com.telecall.app.data.VkycStatus
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -50,6 +51,16 @@ data class UiState(
     val campaigns: List<Campaign> = emptyList(),
     val switchingCampaign: Boolean = false,
     val campaignError: String? = null,
+
+    // --- recruitment SMS batch (backend/46_recruit_sms.sql) ---
+    val recruitDialogOpen: Boolean = false,
+    val recruitInfo: RecruitInfo? = null,
+    val recruitLoading: Boolean = false,
+    val recruitSending: Boolean = false,
+    val recruitTotal: Int = 0,
+    val recruitDone: Int = 0,
+    val recruitSentOk: Int = 0,
+    val recruitMessage: String? = null,
 
     // --- agent's own calling number, self-reported (backend/26_agent_contact_number.sql) ---
     val showContactNumberDialog: Boolean = false,
@@ -860,6 +871,55 @@ class AppViewModel(
                         delay(UiState.MIN_CALL_DWELL_MS)
                         _state.update { it }
                     }
+                }
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // Recruitment SMS: one tap texts the next batch (<= 100) of the admin's
+    // separate contact list. Server decides who/what/how many (backend/46).
+    // -----------------------------------------------------------------
+    fun openRecruit() {
+        if (_state.value.recruitSending) { _state.update { it.copy(recruitDialogOpen = true) }; return }
+        _state.update { it.copy(recruitDialogOpen = true, recruitLoading = true, recruitMessage = null, recruitTotal = 0, recruitDone = 0, recruitSentOk = 0) }
+        viewModelScope.launch {
+            when (val r = repo.recruitInfo()) {
+                is Outcome.Ok -> _state.update { it.copy(recruitInfo = r.value, recruitLoading = false) }
+                is Outcome.Err -> _state.update { it.copy(recruitInfo = null, recruitLoading = false, recruitMessage = r.message) }
+            }
+        }
+    }
+
+    fun closeRecruit() = _state.update { it.copy(recruitDialogOpen = false) }
+
+    fun startRecruitBatch() {
+        if (_state.value.recruitSending) return
+        _state.update { it.copy(recruitSending = true, recruitMessage = null, recruitTotal = 0, recruitDone = 0, recruitSentOk = 0) }
+        viewModelScope.launch {
+            when (val r = repo.claimRecruitBatch(100)) {
+                is Outcome.Err -> _state.update { it.copy(recruitSending = false, recruitMessage = r.message) }
+                is Outcome.Ok -> {
+                    val batch = r.value
+                    _state.update { it.copy(recruitTotal = batch.size) }
+                    val pending = mutableListOf<Pair<Long, String>>()
+                    var consecutiveFailures = 0
+                    var stoppedEarly: String? = null
+                    for ((i, c) in batch.withIndex()) {
+                        val outcome = simManager.sendTextAndAwait(c.mobile, c.message)
+                        pending.add(c.id to outcome)
+                        consecutiveFailures = if (outcome == "sent") 0 else consecutiveFailures + 1
+                        _state.update { it.copy(recruitDone = i + 1, recruitSentOk = it.recruitSentOk + if (outcome == "sent") 1 else 0) }
+                        if (outcome == "permission_denied") { stoppedEarly = "SMS permission was not granted."; break }
+                        // Stop on a run of failures (SIM out of balance, daily limit hit,
+                        // no signal) instead of burning through the rest of the batch.
+                        if (consecutiveFailures >= 5) { stoppedEarly = "Stopped: 5 messages in a row failed (SIM limit, balance or signal). The rest were not sent."; break }
+                        if (pending.size >= 20) { val chunk = pending.toList(); pending.clear(); runCatching { repo.reportRecruitResults(chunk) } }
+                        delay(1500)
+                    }
+                    if (pending.isNotEmpty()) runCatching { repo.reportRecruitResults(pending.toList()) }
+                    val info = (repo.recruitInfo() as? Outcome.Ok)?.value
+                    _state.update { it.copy(recruitSending = false, recruitInfo = info ?: it.recruitInfo, recruitMessage = stoppedEarly) }
                 }
             }
         }

@@ -323,6 +323,32 @@ class LeadRepository(private val client: SupabaseClient) {
         )
     }
 
+    // ---- recruitment SMS (backend/46_recruit_sms.sql) ----
+
+    suspend fun recruitInfo(): Outcome<RecruitInfo> =
+        when (val r = client.rpc("recruit_sms_info")) {
+            is Outcome.Err -> r
+            is Outcome.Ok -> runCatching { json.decodeFromString<RecruitInfo>(r.value) }
+                .fold({ Outcome.Ok(it) }, { Outcome.Err("Could not read the recruitment settings: ${it.message}") })
+        }
+
+    /** Claims the next batch (server-capped at 100 and at the agent's daily limit). */
+    suspend fun claimRecruitBatch(count: Int = 100): Outcome<List<RecruitContact>> =
+        when (val r = client.rpc("claim_recruit_batch", buildJsonObject { put("p_count", count) }.toString())) {
+            is Outcome.Err -> r
+            is Outcome.Ok -> runCatching { json.decodeFromString<List<RecruitContact>>(r.value) }
+                .fold({ Outcome.Ok(it) }, { Outcome.Err("Could not read the batch: ${it.message}") })
+        }
+
+    suspend fun reportRecruitResults(results: List<Pair<Long, String>>) {
+        val body = buildJsonObject {
+            putJsonArray("p_results") {
+                results.forEach { (id, outcome) -> add(buildJsonObject { put("id", id); put("outcome", outcome) }) }
+            }
+        }.toString()
+        retryRpc("report_recruit_results", body)
+    }
+
     /** Whether the admin currently allows the Apply Card SMS (backend/44). */
     val applyCardSmsEnabled: Boolean get() = client.applyCardSmsEnabled
 
