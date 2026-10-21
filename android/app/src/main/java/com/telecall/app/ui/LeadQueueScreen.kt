@@ -99,9 +99,7 @@ fun LeadQueueScreen(
     onContactNumberInputChange: (String) -> Unit,
     onSaveContactNumber: () -> Unit,
     onSwitchCampaign: () -> Unit,
-    onOpenRecruit: () -> Unit,
-    onCloseRecruit: () -> Unit,
-    onStartRecruit: (com.telecall.app.call.SimOption?) -> Unit,
+    onOpenRecordings: () -> Unit,
     onOpenBankAppsTab: () -> Unit,
     onStartNewBankApp: () -> Unit,
     onOpenBankAppDetail: (BankApplication) -> Unit,
@@ -141,10 +139,6 @@ fun LeadQueueScreen(
         )
     }
 
-    if (state.recruitDialogOpen) {
-        RecruitSmsDialog(state = state, onClose = onCloseRecruit, onStart = onStartRecruit)
-    }
-
     Scaffold(
         topBar = {
             TopAppBar(
@@ -171,8 +165,8 @@ fun LeadQueueScreen(
                     IconButton(onClick = { showWhatsAppPicker = true }) {
                         Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = "WhatsApp any number")
                     }
-                    IconButton(onClick = onOpenRecruit) {
-                        Text("J", style = MaterialTheme.typography.titleLarge)
+                    IconButton(onClick = onOpenRecordings) {
+                        Text("T", style = MaterialTheme.typography.titleLarge)
                     }
                     IconButton(onClick = onSwitchCampaign) {
                         Icon(Icons.Filled.Folder, contentDescription = "Switch campaign")

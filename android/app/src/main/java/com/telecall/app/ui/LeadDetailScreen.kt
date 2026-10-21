@@ -103,11 +103,12 @@ fun LeadDetailScreen(
     val context = LocalContext.current
     // One system prompt the first time the agent taps a number. (SEND_SMS was
     // dropped in 1.17.2 along with the automatic Apply Card text.)
-    val callPerms = arrayOf(
-        Manifest.permission.CALL_PHONE,
-        Manifest.permission.READ_PHONE_STATE,
-        Manifest.permission.READ_CALL_LOG
-    )
+    // (RECORD_AUDIO is not asked here: MainActivity blocks the whole app until it is granted.)
+    val callPerms = buildList {
+        add(Manifest.permission.CALL_PHONE)
+        add(Manifest.permission.READ_PHONE_STATE)
+        add(Manifest.permission.READ_CALL_LOG)
+    }.toTypedArray()
 
     // Whatever the user answers, we proceed: with permission we dial straight
     // out of the chosen SIM, without it SimManager falls back to opening the

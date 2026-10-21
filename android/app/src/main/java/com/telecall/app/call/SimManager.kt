@@ -1,37 +1,26 @@
 package com.telecall.app.call
 
-import android.app.Activity
-import android.app.PendingIntent
 import android.Manifest
 import android.annotation.SuppressLint
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.telecom.PhoneAccountHandle
 import android.telecom.TelecomManager
-import android.telephony.SmsManager
 import android.telephony.SubscriptionInfo
 import android.telephony.SubscriptionManager
 import android.util.Log
 import androidx.core.content.ContextCompat
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withTimeoutOrNull
-import kotlin.coroutines.resume
 
 /**
  * One dialable SIM.
  *
  * @param slotIndex      1-based slot number as printed on the handset ("SIM 1").
  * @param handle         the telecom account used to force the call onto this SIM.
- * @param subscriptionId lets [SimManager.sendApplyCardSms] go out on the same
- *                       SIM as the call, so the customer sees a consistent
- *                       sender. Null on OEM telephony stacks that don't
- *                       expose it — sendApplyCardSms falls back to the
- *                       device's default SMS SIM in that case.
+ * @param subscriptionId the SIM's telephony subscription id. Null on OEM
+ *                       telephony stacks that don't expose it.
  */
 data class SimOption(
     val slotIndex: Int,
@@ -53,62 +42,12 @@ data class SimOption(
  */
 class SimManager(private val context: Context) {
 
-    /**
-     * Fired with (leadId, mobile, outcome) whenever [sendApplyCardSms]
-     * reaches a final result — including the early-return cases
-     * (permission denied, blank number) and the async carrier result
-     * below. Agents work remotely and their phones can never be plugged
-     * in for `adb logcat`, so [AppViewModel] sets this once to forward
-     * every outcome to `log_sms_outcome()` (backend/14_sms_delivery_log.sql)
-     * — the only way to see a real-device failure without holding the
-     * device. Deliberately just a callback, not a repo/network dependency
-     * here: SimManager stays telephony-only.
-     */
-    var onSmsOutcome: ((leadId: Long?, mobile: String, outcome: String) -> Unit)? = null
-
-    // sendTextMessage() with a null sentIntent hands the text off to the
-    // radio and returns immediately — a real carrier-level failure (no
-    // service, radio off, blocked) never throws and never shows up in
-    // content://sms/sent's presence alone. This receiver is the only way
-    // to see that outcome; an emulator's virtual modem can't exercise it,
-    // which is why the emulator-only verification before v1.5.0 couldn't
-    // have caught a real-device carrier failure.
-    private val smsResultReceiver = object : BroadcastReceiver() {
-        override fun onReceive(ctx: Context, intent: Intent) {
-            val number = intent.getStringExtra(EXTRA_NUMBER) ?: return
-            val leadId = intent.getLongExtra(EXTRA_LEAD_ID, -1L).takeIf { it >= 0 }
-            val outcome = when (resultCode) {
-                Activity.RESULT_OK -> "sent"
-                SmsManager.RESULT_ERROR_GENERIC_FAILURE -> "generic_failure"
-                SmsManager.RESULT_ERROR_NO_SERVICE -> "no_service"
-                SmsManager.RESULT_ERROR_NULL_PDU -> "null_pdu"
-                SmsManager.RESULT_ERROR_RADIO_OFF -> "radio_off"
-                else -> "unknown_code_$resultCode"
-            }
-            Log.i(TAG, "Apply Card SMS to $number: $outcome")
-            onSmsOutcome?.invoke(leadId, number, outcome)
-        }
-    }
-
-    init {
-        ContextCompat.registerReceiver(
-            context,
-            smsResultReceiver,
-            IntentFilter(SMS_SENT_ACTION),
-            ContextCompat.RECEIVER_NOT_EXPORTED
-        )
-    }
-
     fun hasCallPermission(): Boolean =
         ContextCompat.checkSelfPermission(context, Manifest.permission.CALL_PHONE) ==
             PackageManager.PERMISSION_GRANTED
 
     fun hasPhoneStatePermission(): Boolean =
         ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE) ==
-            PackageManager.PERMISSION_GRANTED
-
-    fun hasSmsPermission(): Boolean =
-        ContextCompat.checkSelfPermission(context, Manifest.permission.SEND_SMS) ==
             PackageManager.PERMISSION_GRANTED
 
     /**
@@ -204,135 +143,6 @@ class SimManager(private val context: Context) {
         }
     }
 
-    /**
-     * Texts the Apply Card link to [number], on the same SIM the call is
-     * going out on when that's known. Fire-and-forget and silent about
-     * failure on purpose: this rides along with placing a call, and a
-     * missing SEND_SMS grant or a carrier hiccup must never surface as if
-     * the call itself failed. Sent normally through the platform — this
-     * shows up in the phone's own Sent folder like any other text, same as
-     * every other message this device sends.
-     */
-    fun sendApplyCardSms(number: String, sim: SimOption?, leadId: Long?) {
-        if (!hasSmsPermission()) {
-            Log.w(TAG, "sendApplyCardSms: SEND_SMS not granted, skipping")
-            onSmsOutcome?.invoke(leadId, number, "permission_denied")
-            return
-        }
-        val cleaned = sanitize(number)
-        if (cleaned.isBlank()) {
-            onSmsOutcome?.invoke(leadId, number, "invalid_number")
-            return
-        }
-
-        try {
-            // context.getSystemService(SmsManager::class.java) looks like
-            // the non-deprecated replacement for SmsManager.getDefault(),
-            // but it was NOT registered for that generic class-based
-            // lookup until API 31 (Android 12) — on anything older it
-            // returns null, and calling .sendTextMessage() on that null
-            // reference is exactly the crash a real device hit: "Attempt
-            // to invoke virtual method ... SmsManager.sendTextMessage(...)
-            // on a null object reference", on a Xiaomi Redmi 9A that never
-            // shipped past Android 11. SmsManager.getDefault() is
-            // deprecated since API 31 but still fully functional and the
-            // only reliable way to get an instance below it — this tries
-            // the modern lookup first (works on 31+) and falls back to the
-            // deprecated static method when it returns null (< 31).
-            @Suppress("DEPRECATION")
-            val default = context.getSystemService(SmsManager::class.java) ?: SmsManager.getDefault()
-            val manager = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && sim?.subscriptionId != null) {
-                default.createForSubscriptionId(sim.subscriptionId)
-            } else {
-                default
-            }
-            // sentIntent carries leadId through to smsResultReceiver, which
-            // logs it and forwards it via onSmsOutcome — see that receiver's
-            // kdoc for why this is worth having despite the fire-and-forget
-            // design. It never touches app state or the call result.
-            val sentIntent = PendingIntent.getBroadcast(
-                context,
-                cleaned.hashCode(),
-                Intent(SMS_SENT_ACTION).setPackage(context.packageName)
-                    .putExtra(EXTRA_NUMBER, cleaned)
-                    .putExtra(EXTRA_LEAD_ID, leadId ?: -1L),
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            manager.sendTextMessage(cleaned, null, APPLY_CARD_SMS_TEXT, sentIntent, null)
-        } catch (e: Exception) {
-            Log.e(TAG, "sendApplyCardSms failed for $cleaned", e)
-            onSmsOutcome?.invoke(leadId, number, "exception: ${e.message}")
-        }
-    }
-
-    /**
-     * Sends one text and WAITS for the radio's result ("sent", "no_service",
-     * ...). Used by the recruitment batch (backend/46), which paces and then
-     * reports each outcome. Never throws.
-     */
-    suspend fun sendTextAndAwait(number: String, text: String, sim: SimOption? = null): String {
-        if (!hasSmsPermission()) return "permission_denied"
-        val cleaned = sanitize(number)
-        if (cleaned.isBlank()) return "invalid_number"
-        val action = "com.telecall.app.RECRUIT_SMS_" + System.nanoTime()
-        return try {
-            withTimeoutOrNull(25_000L) {
-                suspendCancellableCoroutine<String> { cont ->
-                    val receiver = object : BroadcastReceiver() {
-                        override fun onReceive(ctx: Context, intent: Intent) {
-                            // For a generic failure the radio adds its own, more specific
-                            // "errorCode" extra; keep it so the dashboard can show the real cause.
-                            val radioCode = intent.getIntExtra("errorCode", -1)
-                            val suffix = if (radioCode >= 0) "_r$radioCode" else ""
-                            val outcome = when (resultCode) {
-                                Activity.RESULT_OK -> "sent"
-                                SmsManager.RESULT_ERROR_GENERIC_FAILURE -> "generic_failure$suffix"
-                                SmsManager.RESULT_ERROR_NO_SERVICE -> "no_service"
-                                SmsManager.RESULT_ERROR_NULL_PDU -> "null_pdu"
-                                SmsManager.RESULT_ERROR_RADIO_OFF -> "radio_off"
-                                else -> "unknown_code_$resultCode$suffix"
-                            }
-                            runCatching { ctx.unregisterReceiver(this) }
-                            if (cont.isActive) cont.resume(outcome)
-                        }
-                    }
-                    ContextCompat.registerReceiver(context, receiver, IntentFilter(action), ContextCompat.RECEIVER_NOT_EXPORTED)
-                    cont.invokeOnCancellation { runCatching { context.unregisterReceiver(receiver) } }
-                    try {
-                        @Suppress("DEPRECATION")
-                        val base = context.getSystemService(SmsManager::class.java) ?: SmsManager.getDefault()
-                        // Send on the SIM the agent picked — otherwise Android uses the
-                        // phone's default SMS SIM, which on a dual-SIM handset is often
-                        // not the one with balance/service.
-                        val subId = sim?.subscriptionId
-                        val manager = when {
-                            subId == null -> base
-                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> base.createForSubscriptionId(subId)
-                            else -> SmsManager.getSmsManagerForSubscriptionId(subId)
-                        }
-                        val sent = PendingIntent.getBroadcast(
-                            context, 0, Intent(action).setPackage(context.packageName),
-                            PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
-                        )
-                        val parts = manager.divideMessage(text)
-                        if (parts.size > 1) {
-                            val intents = ArrayList<PendingIntent?>(parts.size)
-                            repeat(parts.size) { i -> intents.add(if (i == parts.size - 1) sent else null) }
-                            manager.sendMultipartTextMessage(cleaned, null, parts, intents, null)
-                        } else {
-                            manager.sendTextMessage(cleaned, null, text, sent, null)
-                        }
-                    } catch (e: Exception) {
-                        runCatching { context.unregisterReceiver(receiver) }
-                        if (cont.isActive) cont.resume("exception: ${e.message}")
-                    }
-                }
-            } ?: "timeout"
-        } catch (e: Exception) {
-            "exception: ${e.message}"
-        }
-    }
-
     /** Strip formatting the CRM may carry; keep digits, +, *, # and pauses. */
     private fun sanitize(raw: String): String =
         raw.filter { it.isDigit() || it in "+*#,;" }
@@ -345,10 +155,6 @@ class SimManager(private val context: Context) {
     }
 
     companion object {
-        const val APPLY_CARD_SMS_TEXT = "Apply for the best Credit Card, cardadda.in/sms"
         private const val TAG = "SimManager"
-        private const val SMS_SENT_ACTION = "com.telecall.app.APPLY_CARD_SMS_SENT"
-        private const val EXTRA_NUMBER = "number"
-        private const val EXTRA_LEAD_ID = "lead_id"
     }
 }

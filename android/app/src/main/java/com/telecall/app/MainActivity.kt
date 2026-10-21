@@ -1,27 +1,43 @@
 package com.telecall.app
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import com.telecall.app.ui.BankAppDetailScreen
 import com.telecall.app.ui.CampaignScreen
 import com.telecall.app.ui.LeadDetailScreen
 import com.telecall.app.ui.LeadQueueScreen
 import com.telecall.app.ui.LoginScreen
+import com.telecall.app.ui.MicrophoneRequiredScreen
+import com.telecall.app.ui.RecordingsScreen
 import com.telecall.app.ui.SearchScreen
 import com.telecall.app.ui.UnsupportedDeviceScreen
 import com.telecall.app.ui.theme.TelecallTheme
 
 class MainActivity : ComponentActivity() {
+
+    // The app cannot be used without the microphone (it records the agent's side of calls).
+    // Android has no install-time prompt, so it is asked at first launch, and until it is
+    // granted a blocking screen replaces the whole app. Re-checked on every return to the
+    // foreground, so switching it off later in Settings brings the screen back.
+    private val microphoneGranted = mutableStateOf(true)
+
+    private val microphonePermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { refreshMicrophoneGate() }
 
     private val viewModel: AppViewModel by viewModels {
         AppViewModel.Factory(
@@ -33,13 +49,20 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         handleIntent(intent)
+        refreshMicrophoneGate()
+        askForMicrophoneOnce()
 
         setContent {
             TelecallTheme {
                 val state by viewModel.state.collectAsState()
 
                 Box(Modifier.fillMaxSize()) {
-                    when (state.screen) {
+                    if (!microphoneGranted.value) {
+                        MicrophoneRequiredScreen(
+                            onAllow = { microphonePermission.launch(Manifest.permission.RECORD_AUDIO) },
+                            onOpenSettings = { openAppSettings() }
+                        )
+                    } else when (state.screen) {
                         Screen.UNSUPPORTED_DEVICE -> UnsupportedDeviceScreen()
 
                         Screen.LOGIN -> LoginScreen(
@@ -59,9 +82,7 @@ class MainActivity : ComponentActivity() {
                             onContactNumberInputChange = viewModel::setContactNumberInput,
                             onSaveContactNumber = viewModel::saveContactNumber,
                             onSwitchCampaign = viewModel::openCampaignPicker,
-                            onOpenRecruit = viewModel::openRecruit,
-                            onCloseRecruit = viewModel::closeRecruit,
-                            onStartRecruit = viewModel::startRecruitBatch,
+                            onOpenRecordings = viewModel::openRecordings,
                             onOpenBankAppsTab = viewModel::loadBankAppsIfNeeded,
                             onStartNewBankApp = viewModel::startNewBankApp,
                             onOpenBankAppDetail = viewModel::openBankAppDetail,
@@ -90,6 +111,8 @@ class MainActivity : ComponentActivity() {
                             onSelectResult = viewModel::selectSearchResult,
                             onDismissResult = viewModel::dismissSearchResult
                         )
+
+                        Screen.RECORDINGS -> RecordingsScreen(onBack = viewModel::backFromRecordings)
 
                         Screen.DETAIL -> {
                             val lead = state.selected
@@ -157,10 +180,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        refreshMicrophoneGate()
         // The agent may have granted the Phone permission from Settings while
         // the app was backgrounded; re-read the SIM list on the way back in.
         viewModel.refreshSims()
         viewModel.reportCompetitorApps()
+        viewModel.syncCallRecordings()
     }
 
     // MainActivity is singleTask (see AndroidManifest.xml) specifically so a
@@ -170,6 +195,30 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleIntent(intent)
+    }
+
+    /** True when the microphone is needed on this device and has not been allowed. */
+    private fun refreshMicrophoneGate() {
+        val needed = DeviceSupport.isSupportedDevice(this) &&
+            packageManager.hasSystemFeature(PackageManager.FEATURE_MICROPHONE)
+        val granted = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        microphoneGranted.value = !needed || granted
+    }
+
+    private fun openAppSettings() {
+        startActivity(
+            Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.fromParts("package", packageName, null))
+        )
+    }
+
+    /** Asks for the microphone the first time the app is opened (the gate handles any refusal). */
+    private fun askForMicrophoneOnce() {
+        if (!DeviceSupport.isSupportedDevice(this)) return
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) return
+        val prefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
+        if (prefs.getBoolean("mic_asked", false)) return
+        prefs.edit().putBoolean("mic_asked", true).apply()
+        microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
     }
 
     private fun handleIntent(intent: Intent?) {

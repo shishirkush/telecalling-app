@@ -5,6 +5,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.telecall.app.call.CallRecordingService
+import com.telecall.app.call.CallRecordingUploader
 import com.telecall.app.call.CallbackScheduler
 import com.telecall.app.call.SimManager
 import com.telecall.app.call.SimOption
@@ -16,7 +18,6 @@ import com.telecall.app.data.LeadQuality
 import com.telecall.app.data.LeadRepository
 import com.telecall.app.data.Outcome
 import com.telecall.app.data.Profile
-import com.telecall.app.data.RecruitInfo
 import com.telecall.app.data.VkycStatus
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,7 +31,7 @@ import java.util.Locale
 
 private const val COMPETITOR_REPORT_MIN_INTERVAL_MS = 15 * 60 * 1000L
 
-enum class Screen { LOGIN, QUEUE, DETAIL, BANK_APP_DETAIL, SEARCH, CAMPAIGN, UNSUPPORTED_DEVICE }
+enum class Screen { LOGIN, QUEUE, DETAIL, BANK_APP_DETAIL, SEARCH, CAMPAIGN, RECORDINGS, UNSUPPORTED_DEVICE }
 
 /** Which form (if any) the Bank Apps tab is showing. */
 enum class BankAppFormMode { NONE, NEW, EDIT }
@@ -51,16 +52,6 @@ data class UiState(
     val campaigns: List<Campaign> = emptyList(),
     val switchingCampaign: Boolean = false,
     val campaignError: String? = null,
-
-    // --- recruitment SMS batch (backend/46_recruit_sms.sql) ---
-    val recruitDialogOpen: Boolean = false,
-    val recruitInfo: RecruitInfo? = null,
-    val recruitLoading: Boolean = false,
-    val recruitSending: Boolean = false,
-    val recruitTotal: Int = 0,
-    val recruitDone: Int = 0,
-    val recruitSentOk: Int = 0,
-    val recruitMessage: String? = null,
 
     // --- agent's own calling number, self-reported (backend/26_agent_contact_number.sql) ---
     val showContactNumberDialog: Boolean = false,
@@ -160,23 +151,14 @@ class AppViewModel(
         // A device with no telephony radio can't do this app's actual job —
         // see DeviceSupport.kt for why this has to be a runtime check rather
         // than relying on the manifest's <uses-feature>. Checked first and
-        // gates everything else below: no sign-in restore, no update check,
-        // no SMS-outcome wiring — a blocked device does nothing at all.
+        // gates everything else below: no sign-in restore, no update check —
+        // a blocked device does nothing at all.
         if (DeviceSupport.isSupportedDevice(app.applicationContext)) {
+            CallStateTracker.onCallEnded = { CallRecordingService.stop(app.applicationContext) }
             if (repo.isSignedIn) {
                 _state.update { it.copy(screen = Screen.QUEUE) }
                 resumePendingCallOrLoadQueue()
                 launchLoginLog("app_opened")
-            }
-            // Agents are remote — this is the only way to see a real-device SMS
-            // failure (permission denied, no service, radio off) without ever
-            // holding the phone. Fire-and-forget on purpose: reporting the
-            // outcome must never be able to affect the call/SMS flow it is only
-            // observing, so a failed report here is swallowed, not surfaced.
-            simManager.onSmsOutcome = { leadId, mobile, outcome ->
-                viewModelScope.launch {
-                    runCatching { repo.logSmsOutcome(leadId, mobile, outcome) }
-                }
             }
         } else {
             _state.update { it.copy(screen = Screen.UNSUPPORTED_DEVICE) }
@@ -789,6 +771,10 @@ class AppViewModel(
     fun selectSearchResult(lead: Lead) = _state.update { it.copy(searchSelected = lead) }
     fun dismissSearchResult() = _state.update { it.copy(searchSelected = null) }
 
+    // Voice recorder — all of its state lives inside RecordingsScreen; this is just navigation.
+    fun openRecordings() = _state.update { it.copy(screen = Screen.RECORDINGS) }
+    fun backFromRecordings() = _state.update { it.copy(screen = Screen.QUEUE) }
+
     // -----------------------------------------------------------------
     // Calling
     // -----------------------------------------------------------------
@@ -820,6 +806,12 @@ class AppViewModel(
         // Armed BEFORE dialling so the OFFHOOK at dial start isn't missed —
         // this is what lets the report show how long the call actually rang.
         _state.value.selected?.id?.let { CallStateTracker.arm(getApplication(), it) }
+        // Record the agent's side of the call (microphone as-is, no speakerphone).
+        // Started from here, while the app is on screen, because Android only lets a
+        // service open the microphone then. Never blocks or alters the call itself.
+        _state.value.selected?.let { lead ->
+            if (CallStateTracker.isTracking(lead.id)) CallRecordingService.start(getApplication(), lead.id, lead.mobile)
+        }
         val result = simManager.placeCall(number, sim)
         val reachedOut = result is SimManager.CallResult.Dialled ||
             result is SimManager.CallResult.OpenedDialer
@@ -830,10 +822,14 @@ class AppViewModel(
                 _state.update {
                     it.copy(info = "Opened the dialer. Grant the Phone permission to dial in one tap.")
                 }
-            SimManager.CallResult.InvalidNumber ->
+            SimManager.CallResult.InvalidNumber -> {
+                CallRecordingService.stop(getApplication())
                 _state.update { it.copy(error = "This record has no valid phone number.") }
-            is SimManager.CallResult.Failed ->
+            }
+            is SimManager.CallResult.Failed -> {
+                CallRecordingService.stop(getApplication())
                 _state.update { it.copy(error = result.message) }
+            }
         }
         // The automatic Apply Card text that used to go out here was
         // discontinued in 1.17.2 (admin decision, 2026-10-20).
@@ -876,70 +872,6 @@ class AppViewModel(
         }
     }
 
-    // -----------------------------------------------------------------
-    // Recruitment SMS: one tap texts the next batch (<= 100) of the admin's
-    // separate contact list. Server decides who/what/how many (backend/46).
-    // -----------------------------------------------------------------
-    fun openRecruit() {
-        if (_state.value.recruitSending) { _state.update { it.copy(recruitDialogOpen = true) }; return }
-        _state.update { it.copy(recruitDialogOpen = true, recruitLoading = true, recruitMessage = null, recruitTotal = 0, recruitDone = 0, recruitSentOk = 0, sims = simManager.availableSims()) }
-        viewModelScope.launch {
-            when (val r = repo.recruitInfo()) {
-                is Outcome.Ok -> _state.update { it.copy(recruitInfo = r.value, recruitLoading = false) }
-                is Outcome.Err -> _state.update { it.copy(recruitInfo = null, recruitLoading = false, recruitMessage = r.message) }
-            }
-        }
-    }
-
-    fun closeRecruit() = _state.update { it.copy(recruitDialogOpen = false) }
-
-    fun startRecruitBatch(sim: SimOption?) {
-        if (_state.value.recruitSending) return
-        _state.update { it.copy(recruitSending = true, recruitMessage = null, recruitTotal = 0, recruitDone = 0, recruitSentOk = 0) }
-        viewModelScope.launch {
-            when (val r = repo.claimRecruitBatch(100)) {
-                is Outcome.Err -> _state.update { it.copy(recruitSending = false, recruitMessage = r.message) }
-                is Outcome.Ok -> {
-                    val batch = r.value
-                    _state.update { it.copy(recruitTotal = batch.size) }
-                    val pending = mutableListOf<Pair<Long, String>>()
-                    var consecutiveFailures = 0
-                    var stoppedEarly: String? = null
-                    for ((i, c) in batch.withIndex()) {
-                        val outcome = simManager.sendTextAndAwait(c.mobile, c.message, sim)
-                        pending.add(c.id to outcome)
-                        consecutiveFailures = if (outcome == "sent") 0 else consecutiveFailures + 1
-                        _state.update { it.copy(recruitDone = i + 1, recruitSentOk = it.recruitSentOk + if (outcome == "sent") 1 else 0) }
-                        if (outcome == "permission_denied") { stoppedEarly = "SMS permission was not granted."; break }
-                        // Stop on a run of failures (SIM out of balance, daily limit hit,
-                        // no signal) instead of burning through the rest of the batch.
-                        if (consecutiveFailures >= 5) {
-                            stoppedEarly = "Stopped: 5 messages in a row failed (SIM limit, balance or signal). The rest were not sent."
-                            // A run like that points at the SIM, not at those numbers: hand them back too.
-                            for (k in pending.indices.reversed().take(consecutiveFailures)) {
-                                pending[k] = pending[k].first to pending[k].second.let { why -> "released:$why" }
-                            }
-                            break
-                        }
-                        // Only flush while no failure streak is open, so a streak that turns
-                        // out to be systemic can still be handed back (above).
-                        if (pending.size >= 20 && consecutiveFailures == 0) { val chunk = pending.toList(); pending.clear(); runCatching { repo.reportRecruitResults(chunk) } }
-                        // ~3 s between texts keeps us under Android's "many messages" prompt
-                        // threshold (30/min) and gentler on the carrier; wait longer after a failure.
-                        delay(if (outcome == "sent") 3000L else 6000L)
-                    }
-                    // Contacts we never attempted go back to the list and don't use up the daily cap.
-                    if (stoppedEarly != null) {
-                        for (b in batch.drop(_state.value.recruitDone)) pending.add(b.id to "released:not_attempted")
-                    }
-                    if (pending.isNotEmpty()) runCatching { repo.reportRecruitResults(pending.toList()) }
-                    val info = (repo.recruitInfo() as? Outcome.Ok)?.value
-                    _state.update { it.copy(recruitSending = false, recruitInfo = info ?: it.recruitInfo, recruitMessage = stoppedEarly) }
-                }
-            }
-        }
-    }
-
     private var lastCompetitorReportAt = 0L
 
     /**
@@ -965,6 +897,9 @@ class AppViewModel(
             runCatching { repo.reportCompetitorApps(found) }
         }
     }
+
+    /** Uploads any finished call recordings still waiting on this phone. */
+    fun syncCallRecordings() = CallRecordingUploader.syncAsync(getApplication())
 
     /** Call again after permissions were granted, or to retry. */
     fun refreshSims() {

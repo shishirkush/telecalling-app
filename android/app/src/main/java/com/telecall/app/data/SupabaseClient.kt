@@ -16,7 +16,9 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
@@ -298,6 +300,39 @@ class SupabaseClient(context: Context) {
             ).build()
 
             execute(req).fold(onOk = { Outcome.Ok(it) }, onErr = { Outcome.Err(it) })
+        }
+
+    /**
+     * Uploads [file] to Storage at bucket/path as the signed-in user (RLS on
+     * storage.objects decides where they may write). A path that already
+     * exists counts as success, so a retry after a half-finished upload is
+     * harmless.
+     */
+    suspend fun uploadFile(bucket: String, path: String, file: File, contentType: String): Outcome<String> =
+        withContext(Dispatchers.IO) {
+            if (!ensureFreshToken()) return@withContext Outcome.Err(SESSION_EXPIRED)
+            val req = Request.Builder()
+                .url("$baseUrl/storage/v1/object/$bucket/$path")
+                .addHeader("apikey", anonKey)
+                .addHeader("Authorization", "Bearer ${session?.accessToken.orEmpty()}")
+                .post(file.asRequestBody(contentType.toMediaType()))
+                .build()
+            val slow = http.newBuilder().writeTimeout(120, TimeUnit.SECONDS).readTimeout(120, TimeUnit.SECONDS).build()
+            try {
+                slow.newCall(req).execute().use { res ->
+                    val body = res.body?.string().orEmpty()
+                    when {
+                        res.isSuccessful -> Outcome.Ok(body)
+                        res.code == 409 || body.contains("Duplicate", ignoreCase = true) ||
+                            body.contains("already exists", ignoreCase = true) -> Outcome.Ok("exists")
+                        else -> Outcome.Err(extractError(body, res.code))
+                    }
+                }
+            } catch (e: IOException) {
+                Outcome.Err("Network unavailable. Check the phone's data connection.")
+            } catch (e: Exception) {
+                Outcome.Err(e.message ?: "Upload failed")
+            }
         }
 
     private fun authed(b: Request.Builder): Request.Builder = b

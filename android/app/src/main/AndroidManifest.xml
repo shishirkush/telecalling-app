@@ -21,13 +21,20 @@
     <uses-permission android:name="android.permission.READ_CALL_LOG" />
 
     <!--
-      SEND_SMS: used ONLY by the recruitment batch (Queue screen → "J" button → "Send to next batch", backend/46_recruit_sms.sql): the agent taps
-      once and the app texts the admin-set hiring message to the next batch
-      from a separate, admin-loaded contact list. The automatic Apply Card
-      text to credit-card leads stays discontinued (2026-10-20). Requested
-      only when the agent taps the icon, not at sign-in.
+      RECORD_AUDIO: the "T" (Training material) screen on the Queue screen —
+      a new agent records a practice pitch, labels it and plays it back.
+      Requested only when the agent taps Record, never at sign-in. Recordings
+      stay in the app's own private storage on the device; nothing is uploaded.
     -->
-    <uses-permission android:name="android.permission.SEND_SMS" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!--
+      Call recording (CallRecordingService): while a call to a lead is in
+      progress the app records the agent's microphone for training and uploads
+      it. Android requires a foreground service of type "microphone" for that.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
 
     <!--
       Callback reminders (Call Later): a local notification fired by
@@ -61,6 +68,7 @@
     <uses-permission android:name="android.permission.WRITE_CONTACTS" />
 
     <uses-feature android:name="android.hardware.telephony" android:required="true" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
     <!-- Android 11+ package visibility: needed to resolve the dialer, and
          (below) a browser for the "Apply Card" tab's link to cardadda.in. -->
@@ -114,6 +122,11 @@
         <receiver
             android:name=".call.CallbackAlarmReceiver"
             android:exported="false" />
+
+        <service
+            android:name=".call.CallRecordingService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
 
     </application>
 

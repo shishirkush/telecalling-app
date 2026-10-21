@@ -30,6 +30,9 @@ object CallStateTracker {
     private var idleAt = 0L
     private var unregister: (() -> Unit)? = null
 
+    /** Called (on the main thread) with the lead id when a watched call has ended. */
+    @Volatile var onCallEnded: ((Long) -> Unit)? = null
+
     @Synchronized
     fun arm(context: Context, id: Long) {
         release()
@@ -74,6 +77,7 @@ object CallStateTracker {
                 if (offhookAt != 0L && idleAt == 0L) {
                     idleAt = now
                     release()
+                    leadId?.let { onCallEnded?.invoke(it) }
                 }
         }
     }
@@ -83,6 +87,10 @@ object CallStateTracker {
         try { unregister?.invoke() } catch (e: Exception) { }
         unregister = null
     }
+
+    /** True once dialling has started for the watched call (the phone went off-hook). */
+    @Synchronized
+    fun sawOffhook(): Boolean = offhookAt != 0L
 
     /** True while a call to this lead is still being watched (not yet hung up). */
     @Synchronized
