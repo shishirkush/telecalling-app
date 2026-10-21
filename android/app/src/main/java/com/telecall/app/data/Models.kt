@@ -208,3 +208,14 @@ sealed class Outcome<out T> {
     data class Ok<T>(val value: T) : Outcome<T>()
     data class Err(val message: String) : Outcome<Nothing>()
 }
+
+/** One piece of training material the admin uploaded — backend/49_training_material.sql. */
+@Serializable
+data class TrainingItem(
+    val id: String,
+    val kind: String,                       // "pdf" or "audio"
+    val title: String,
+    @SerialName("storage_path") val storagePath: String,
+    @SerialName("size_bytes") val sizeBytes: Long = 0,
+    @SerialName("sort_order") val sortOrder: Int = 0
+)

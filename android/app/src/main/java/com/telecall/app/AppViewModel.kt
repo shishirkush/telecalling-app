@@ -18,6 +18,7 @@ import com.telecall.app.data.LeadQuality
 import com.telecall.app.data.LeadRepository
 import com.telecall.app.data.Outcome
 import com.telecall.app.data.Profile
+import com.telecall.app.data.TrainingItem
 import com.telecall.app.data.VkycStatus
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,7 +32,7 @@ import java.util.Locale
 
 private const val COMPETITOR_REPORT_MIN_INTERVAL_MS = 15 * 60 * 1000L
 
-enum class Screen { LOGIN, QUEUE, DETAIL, BANK_APP_DETAIL, SEARCH, CAMPAIGN, RECORDINGS, UNSUPPORTED_DEVICE }
+enum class Screen { LOGIN, QUEUE, DETAIL, BANK_APP_DETAIL, SEARCH, CAMPAIGN, TRAINING, UNSUPPORTED_DEVICE }
 
 /** Which form (if any) the Bank Apps tab is showing. */
 enum class BankAppFormMode { NONE, NEW, EDIT }
@@ -44,6 +45,11 @@ data class UiState(
     val info: String? = null,
 
     val profile: Profile? = null,
+
+    // --- "T" training material page (backend/49_training_material.sql) ---
+    val trainingItems: List<TrainingItem> = emptyList(),
+    val trainingLoading: Boolean = false,
+    val trainingError: String? = null,
     val queue: List<Lead> = emptyList(),
     val selected: Lead? = null,
     val selectedBankApp: BankApplication? = null, // shown on Screen.BANK_APP_DETAIL
@@ -771,9 +777,35 @@ class AppViewModel(
     fun selectSearchResult(lead: Lead) = _state.update { it.copy(searchSelected = lead) }
     fun dismissSearchResult() = _state.update { it.copy(searchSelected = null) }
 
-    // Voice recorder — all of its state lives inside RecordingsScreen; this is just navigation.
-    fun openRecordings() = _state.update { it.copy(screen = Screen.RECORDINGS) }
-    fun backFromRecordings() = _state.update { it.copy(screen = Screen.QUEUE) }
+    // "T" — training material the admin uploads (PDFs and audio), read-only here.
+    fun openTraining() {
+        _state.update { it.copy(screen = Screen.TRAINING) }
+        loadTraining()
+    }
+
+    fun backFromTraining() = _state.update { it.copy(screen = Screen.QUEUE) }
+
+    fun loadTraining() {
+        _state.update { it.copy(trainingLoading = true, trainingError = null) }
+        viewModelScope.launch {
+            when (val r = repo.trainingItems()) {
+                is Outcome.Ok -> _state.update { it.copy(trainingItems = r.value, trainingLoading = false) }
+                is Outcome.Err -> _state.update { it.copy(trainingLoading = false, trainingError = r.message) }
+            }
+        }
+    }
+
+    /** The local copy of a training file, downloading it first if this phone doesn't have it yet. */
+    suspend fun trainingFile(item: TrainingItem): Outcome<java.io.File> {
+        val dir = java.io.File(getApplication<Application>().cacheDir, "training").apply { mkdirs() }
+        val ext = if (item.kind == "pdf") "pdf" else item.storagePath.substringAfterLast('.', "m4a")
+        val file = java.io.File(dir, "${item.id}.$ext")
+        if (file.exists() && file.length() > 0) return Outcome.Ok(file)
+        return when (val r = repo.downloadTrainingFile(item, file)) {
+            is Outcome.Ok -> Outcome.Ok(file)
+            is Outcome.Err -> r
+        }
+    }
 
     // -----------------------------------------------------------------
     // Calling

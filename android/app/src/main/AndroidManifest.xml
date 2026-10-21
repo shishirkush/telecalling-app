@@ -21,10 +21,9 @@
     <uses-permission android:name="android.permission.READ_CALL_LOG" />
 
     <!--
-      RECORD_AUDIO: the "T" (Training material) screen on the Queue screen —
-      a new agent records a practice pitch, labels it and plays it back.
-      Requested only when the agent taps Record, never at sign-in. Recordings
-      stay in the app's own private storage on the device; nothing is uploaded.
+      RECORD_AUDIO: call recording (CallRecordingService) — the app records the
+      agent's side of each call it places, for training. Asked once at first
+      launch; the app cannot be used until it is granted (MicrophoneRequiredScreen).
     -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 

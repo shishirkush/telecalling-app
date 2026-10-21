@@ -323,6 +323,18 @@ class LeadRepository(private val client: SupabaseClient) {
         )
     }
 
+    // ---- training material (backend/49_training_material.sql) ----
+
+    suspend fun trainingItems(): Outcome<List<TrainingItem>> =
+        when (val r = client.rpc("list_training_items")) {
+            is Outcome.Err -> r
+            is Outcome.Ok -> runCatching { json.decodeFromString<List<TrainingItem>>(r.value) }
+                .fold({ Outcome.Ok(it) }, { Outcome.Err("Could not read the training list: ${it.message}") })
+        }
+
+    suspend fun downloadTrainingFile(item: TrainingItem, dest: java.io.File): Outcome<Unit> =
+        client.downloadFile("training-material", item.storagePath, dest)
+
     // ---- call recordings (backend/48_call_recordings.sql) ----
 
     /** Uploads the audio (when there is any), then registers the call with the server. Retry-safe. */

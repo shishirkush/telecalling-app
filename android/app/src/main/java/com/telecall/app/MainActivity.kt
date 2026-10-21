@@ -23,8 +23,8 @@ import com.telecall.app.ui.LeadDetailScreen
 import com.telecall.app.ui.LeadQueueScreen
 import com.telecall.app.ui.LoginScreen
 import com.telecall.app.ui.MicrophoneRequiredScreen
-import com.telecall.app.ui.RecordingsScreen
 import com.telecall.app.ui.SearchScreen
+import com.telecall.app.ui.TrainingScreen
 import com.telecall.app.ui.UnsupportedDeviceScreen
 import com.telecall.app.ui.theme.TelecallTheme
 
@@ -82,7 +82,7 @@ class MainActivity : ComponentActivity() {
                             onContactNumberInputChange = viewModel::setContactNumberInput,
                             onSaveContactNumber = viewModel::saveContactNumber,
                             onSwitchCampaign = viewModel::openCampaignPicker,
-                            onOpenRecordings = viewModel::openRecordings,
+                            onOpenTraining = viewModel::openTraining,
                             onOpenBankAppsTab = viewModel::loadBankAppsIfNeeded,
                             onStartNewBankApp = viewModel::startNewBankApp,
                             onOpenBankAppDetail = viewModel::openBankAppDetail,
@@ -112,7 +112,12 @@ class MainActivity : ComponentActivity() {
                             onDismissResult = viewModel::dismissSearchResult
                         )
 
-                        Screen.RECORDINGS -> RecordingsScreen(onBack = viewModel::backFromRecordings)
+                        Screen.TRAINING -> TrainingScreen(
+                            state = state,
+                            onBack = viewModel::backFromTraining,
+                            onRefresh = viewModel::loadTraining,
+                            onGetFile = viewModel::trainingFile
+                        )
 
                         Screen.DETAIL -> {
                             val lead = state.selected

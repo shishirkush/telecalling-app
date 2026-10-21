@@ -335,6 +335,37 @@ class SupabaseClient(context: Context) {
             }
         }
 
+    /** Downloads a Storage object (readable by the signed-in user) into [dest]. */
+    suspend fun downloadFile(bucket: String, path: String, dest: File): Outcome<Unit> =
+        withContext(Dispatchers.IO) {
+            if (!ensureFreshToken()) return@withContext Outcome.Err(SESSION_EXPIRED)
+            val req = Request.Builder()
+                .url("$baseUrl/storage/v1/object/authenticated/$bucket/$path")
+                .addHeader("apikey", anonKey)
+                .addHeader("Authorization", "Bearer ${session?.accessToken.orEmpty()}")
+                .get()
+                .build()
+            val slow = http.newBuilder().readTimeout(120, TimeUnit.SECONDS).build()
+            val tmp = File(dest.parentFile, dest.name + ".part")
+            try {
+                slow.newCall(req).execute().use { res ->
+                    if (!res.isSuccessful) {
+                        return@withContext Outcome.Err(extractError(res.body?.string().orEmpty(), res.code))
+                    }
+                    res.body?.byteStream()?.use { input -> tmp.outputStream().use { input.copyTo(it) } }
+                        ?: return@withContext Outcome.Err("Empty download.")
+                }
+                if (!tmp.renameTo(dest)) { tmp.copyTo(dest, overwrite = true); tmp.delete() }
+                Outcome.Ok(Unit)
+            } catch (e: IOException) {
+                tmp.delete()
+                Outcome.Err("Network unavailable. Check the phone's data connection.")
+            } catch (e: Exception) {
+                tmp.delete()
+                Outcome.Err(e.message ?: "Download failed")
+            }
+        }
+
     private fun authed(b: Request.Builder): Request.Builder = b
         .addHeader("apikey", anonKey)
         .addHeader("Authorization", "Bearer ${session?.accessToken.orEmpty()}")

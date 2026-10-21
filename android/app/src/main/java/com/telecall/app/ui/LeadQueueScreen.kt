@@ -99,7 +99,7 @@ fun LeadQueueScreen(
     onContactNumberInputChange: (String) -> Unit,
     onSaveContactNumber: () -> Unit,
     onSwitchCampaign: () -> Unit,
-    onOpenRecordings: () -> Unit,
+    onOpenTraining: () -> Unit,
     onOpenBankAppsTab: () -> Unit,
     onStartNewBankApp: () -> Unit,
     onOpenBankAppDetail: (BankApplication) -> Unit,
@@ -165,7 +165,7 @@ fun LeadQueueScreen(
                     IconButton(onClick = { showWhatsAppPicker = true }) {
                         Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = "WhatsApp any number")
                     }
-                    IconButton(onClick = onOpenRecordings) {
+                    IconButton(onClick = onOpenTraining) {
                         Text("T", style = MaterialTheme.typography.titleLarge)
                     }
                     IconButton(onClick = onSwitchCampaign) {
