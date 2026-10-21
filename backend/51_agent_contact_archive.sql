@@ -37,7 +37,10 @@ select p.id, p.login_id, p.full_name, p.contact_number
  where p.role = 'agent' and p.contact_number is not null
 on conflict (agent_id, login_id, contact_number) do nothing;
 
--- Keep it current: on every new/changed number, rename, and on deletion.
+-- Keep it current: on every new/changed number, and on deletion. Deliberately
+-- NOT on a rename alone: renaming a seat for a new hire leaves the previous
+-- owner's number on the profile until the new hire enters their own, and that
+-- inherited number must not be recorded as the new hire's.
 create or replace function public.snapshot_agent_contact()
 returns trigger
 language plpgsql
@@ -59,7 +62,7 @@ $$;
 
 drop trigger if exists snapshot_agent_contact_upd on public.profiles;
 create trigger snapshot_agent_contact_upd
-  after insert or update of contact_number, login_id, full_name on public.profiles
+  after insert or update of contact_number on public.profiles
   for each row execute function public.snapshot_agent_contact();
 
 drop trigger if exists snapshot_agent_contact_del on public.profiles;
