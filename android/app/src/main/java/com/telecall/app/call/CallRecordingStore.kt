@@ -22,7 +22,11 @@ data class CallRecording(
     val durationMs: Long,
     val fileName: String?,
     val hasAudio: Boolean,
-    val uploaded: Boolean = false
+    val uploaded: Boolean = false,
+    /** Loudest level the phone reported (0..32767), or -1 when unknown. Low = probably a muted mic. */
+    val peak: Int = -1,
+    /** Which microphone source recorded it (mic, voice_recognition, ...). */
+    val source: String = ""
 )
 
 /**
@@ -75,7 +79,9 @@ class CallRecordingStore(context: Context) {
                     durationMs = o.getLong("durationMs"),
                     fileName = if (o.isNull("fileName")) null else o.getString("fileName"),
                     hasAudio = o.getBoolean("hasAudio"),
-                    uploaded = o.optBoolean("uploaded", false)
+                    uploaded = o.optBoolean("uploaded", false),
+                    peak = o.optInt("peak", -1),
+                    source = o.optString("source", "")
                 )
             }
         }.getOrDefault(emptyList())
@@ -94,6 +100,8 @@ class CallRecordingStore(context: Context) {
                     .put("fileName", it.fileName ?: JSONObject.NULL)
                     .put("hasAudio", it.hasAudio)
                     .put("uploaded", it.uploaded)
+                    .put("peak", it.peak)
+                    .put("source", it.source)
             )
         }
         val tmp = File(dir, "index.json.tmp")

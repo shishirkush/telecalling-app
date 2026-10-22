@@ -355,6 +355,8 @@ class LeadRepository(private val client: SupabaseClient) {
             put("p_duration_ms", rec.durationMs)
             put("p_size_bytes", if (rec.hasAudio) (file?.length() ?: 0L) else 0L)
             put("p_has_audio", rec.hasAudio)
+            if (rec.peak >= 0) put("p_peak", rec.peak)
+            if (rec.source.isNotBlank()) put("p_source", rec.source)
         }.toString()
         return when (val r = client.rpc("register_call_recording", body)) {
             is Outcome.Err -> r
