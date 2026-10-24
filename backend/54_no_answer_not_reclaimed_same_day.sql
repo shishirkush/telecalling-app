@@ -97,7 +97,7 @@ begin
             or c.assigned_to = auth.uid()
             or c.locked_at < now() - stale_after)
        and (c.callback_at is null or c.callback_at <= now())
-       and not (c.last_status = 'NO_ANSWER' and c.last_called_at >= ist_day_start)
+       and not coalesce(c.last_status = 'NO_ANSWER' and c.last_called_at >= ist_day_start, false)
        and (
          public.is_admin()
          or exists (
