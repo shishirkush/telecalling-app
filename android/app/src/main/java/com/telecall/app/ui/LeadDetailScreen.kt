@@ -528,7 +528,7 @@ private fun WhatsAppButton(onClick: () -> Unit) {
 // WhatsApp icon.
 
 @Composable
-private fun SimPickerDialog(
+internal fun SimPickerDialog(
     sims: List<SimOption>,
     onPick: (SimOption) -> Unit,
     onDismiss: () -> Unit
@@ -689,7 +689,7 @@ private fun ColumnScope.EditDetailsForm(
 }
 
 @Composable
-private fun Field(label: String, value: String, emphasise: Boolean = false) {
+internal fun Field(label: String, value: String, emphasise: Boolean = false) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -714,7 +714,7 @@ private fun Field(label: String, value: String, emphasise: Boolean = false) {
 }
 
 @Composable
-private fun SectionLabel(text: String) {
+internal fun SectionLabel(text: String) {
     Text(
         text = text.uppercase(),
         style = MaterialTheme.typography.labelMedium,
@@ -723,7 +723,7 @@ private fun SectionLabel(text: String) {
 }
 
 @Composable
-private fun StatusRow(status: CallStatus, selected: Boolean, onClick: () -> Unit) {
+internal fun StatusRow(status: CallStatus, selected: Boolean, onClick: () -> Unit) {
     val accent = statusColor(status)
     Row(
         modifier = Modifier
@@ -756,7 +756,7 @@ private fun StatusRow(status: CallStatus, selected: Boolean, onClick: () -> Unit
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CallbackPicker(currentMillis: Long?, onPicked: (Long) -> Unit) {
+internal fun CallbackPicker(currentMillis: Long?, onPicked: (Long) -> Unit) {
     var showDate by remember { mutableStateOf(false) }
     var showTime by remember { mutableStateOf(false) }
     var stagedDate by remember { mutableLongStateOf(0L) }

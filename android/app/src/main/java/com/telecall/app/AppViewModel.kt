@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import com.telecall.app.call.CallRecordingService
 import com.telecall.app.call.CallRecordingUploader
 import com.telecall.app.call.CallbackScheduler
+import com.telecall.app.call.ProgressiveSession
 import com.telecall.app.call.SimManager
 import com.telecall.app.call.SimOption
 import com.telecall.app.data.BankApplication
@@ -32,7 +33,7 @@ import java.util.Locale
 
 private const val COMPETITOR_REPORT_MIN_INTERVAL_MS = 15 * 60 * 1000L
 
-enum class Screen { LOGIN, QUEUE, DETAIL, BANK_APP_DETAIL, SEARCH, CAMPAIGN, TRAINING, UNSUPPORTED_DEVICE }
+enum class Screen { LOGIN, QUEUE, DETAIL, BANK_APP_DETAIL, SEARCH, CAMPAIGN, TRAINING, PROGRESSIVE, UNSUPPORTED_DEVICE }
 
 /** Which form (if any) the Bank Apps tab is showing. */
 enum class BankAppFormMode { NONE, NEW, EDIT }
@@ -153,6 +154,10 @@ class AppViewModel(
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
 
+    // Progressive calling (backend/60_progressive_mode.sql). Lives here, not in a
+    // screen, so it survives the screen being left; the screen pauses it on exit.
+    val progressive = ProgressiveSession(app, viewModelScope, repo, simManager)
+
     init {
         // A device with no telephony radio can't do this app's actual job —
         // see DeviceSupport.kt for why this has to be a runtime check rather
@@ -160,7 +165,10 @@ class AppViewModel(
         // gates everything else below: no sign-in restore, no update check —
         // a blocked device does nothing at all.
         if (DeviceSupport.isSupportedDevice(app.applicationContext)) {
-            CallStateTracker.onCallEnded = { CallRecordingService.stop(app.applicationContext) }
+            CallStateTracker.onCallEnded = { leadId ->
+                CallRecordingService.stop(app.applicationContext)
+                progressive.onTrackerCallEnded(leadId)
+            }
             if (repo.isSignedIn) {
                 _state.update { it.copy(screen = Screen.QUEUE) }
                 resumePendingCallOrLoadQueue()
@@ -217,6 +225,7 @@ class AppViewModel(
             runCatching { repo.logLoginEvent("logout") }
             repo.signOut()
             repo.clearPendingCall()
+            progressive.reset()
             _state.value = UiState(screen = Screen.LOGIN)
         }
     }
@@ -232,6 +241,7 @@ class AppViewModel(
         runCatching { repo.logLoginEvent("logout") }
         repo.signOut()
         repo.clearPendingCall()
+        progressive.reset()
         _state.value = UiState(
             screen = Screen.LOGIN,
             error = "You were signed out because this login was used to sign in on another device."
@@ -319,6 +329,9 @@ class AppViewModel(
                         openCampaignPicker()
                         return@launch
                     }
+                    // Calls made in progressive mode that still wait for an outcome
+                    // (e.g. the app was closed mid-round) — rebuild that list.
+                    if (p.value.isProgressive) progressive.restore()
                 }
                 is Outcome.Err -> _state.update { it.copy(error = p.message) }
             }
@@ -524,6 +537,37 @@ class AppViewModel(
 
     fun backFromCampaignPicker() {
         _state.update { it.copy(screen = Screen.QUEUE) }
+    }
+
+    // -----------------------------------------------------------------
+    // Calling mode — normal or progressive (backend/60_progressive_mode.sql).
+    // The server refuses to switch while calls are waiting to be saved.
+    // -----------------------------------------------------------------
+
+    fun setCallingMode(mode: String) {
+        val profile = _state.value.profile ?: return
+        if (profile.callingMode == mode) return
+        viewModelScope.launch {
+            when (val r = repo.setCallingMode(mode)) {
+                is Outcome.Err -> _state.update { it.copy(error = r.message) }
+                is Outcome.Ok -> {
+                    _state.update { it.copy(profile = profile.copy(callingMode = mode), error = null) }
+                    if (mode == "progressive") progressive.restore() else progressive.reset()
+                }
+            }
+        }
+    }
+
+    fun openProgressive() {
+        _state.update { it.copy(screen = Screen.PROGRESSIVE, error = null, info = null) }
+        progressive.open()
+    }
+
+    /** Leaving pauses dialling after the current call; calls waiting to be saved stay waiting. */
+    fun backFromProgressive() {
+        progressive.close()
+        _state.update { it.copy(screen = Screen.QUEUE) }
+        refreshQueue()
     }
 
     fun selectCampaign(campaignId: Long) {

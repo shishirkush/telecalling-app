@@ -100,6 +100,9 @@ fun LeadQueueScreen(
     onSaveContactNumber: () -> Unit,
     onSwitchCampaign: () -> Unit,
     onOpenTraining: () -> Unit,
+    onSetCallingMode: (String) -> Unit,
+    onOpenProgressive: () -> Unit,
+    progressivePending: Int,
     onOpenBankAppsTab: () -> Unit,
     onStartNewBankApp: () -> Unit,
     onOpenBankAppDetail: (BankApplication) -> Unit,
@@ -123,6 +126,7 @@ fun LeadQueueScreen(
     val visibleLeads = if (selectedTab == 1) callbackLeads else freshLeads
 
     val context = LocalContext.current
+    val progressiveMode = state.profile?.isProgressive == true
 
     // No lead required — see CardPickerDialog's doc comment in
     // WhatsAppShare.kt. Available any time the agent is signed in,
@@ -188,7 +192,8 @@ fun LeadQueueScreen(
         floatingActionButton = {
             // Only meaningful on Queue/CallBacks — My Leads is a read-only
             // overview and Bank Apps has its own "+ Log application" action.
-            if (selectedTab == 0 || selectedTab == 1) {
+            // Progressive mode takes leads through its own screen instead.
+            if ((selectedTab == 0 || selectedTab == 1) && !progressiveMode) {
                 ExtendedFloatingActionButton(
                     onClick = onClaimNext,
                     icon = { Icon(Icons.Filled.Add, contentDescription = null) },
@@ -206,6 +211,58 @@ fun LeadQueueScreen(
             // this tab.
             LaunchedEffect(selectedTab) {
                 if (selectedTab == 2) onOpenBankAppsTab()
+            }
+
+            // How this agent calls: one lead at a time (Normal), or the app dialling
+            // back to back with outcomes saved from a list (Progressive).
+            // The server refuses to switch while calls are waiting to be saved.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Calling mode",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                FilterChip(
+                    selected = !progressiveMode,
+                    onClick = { onSetCallingMode("normal") },
+                    label = { Text("Normal") }
+                )
+                FilterChip(
+                    selected = progressiveMode,
+                    onClick = { onSetCallingMode("progressive") },
+                    label = { Text("Progressive") }
+                )
+            }
+            if (progressiveMode) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp)
+                        .clickable(onClick = onOpenProgressive)
+                ) {
+                    Column(Modifier.padding(14.dp)) {
+                        Text(
+                            text = "Start progressive calling",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = if (progressivePending > 0)
+                                "$progressivePending call(s) waiting for an outcome"
+                            else
+                                "Calls are placed back to back; save outcomes from a list.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
             }
 
             TabRow(selectedTabIndex = selectedTab) {

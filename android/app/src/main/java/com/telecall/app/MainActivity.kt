@@ -23,6 +23,7 @@ import com.telecall.app.ui.LeadDetailScreen
 import com.telecall.app.ui.LeadQueueScreen
 import com.telecall.app.ui.LoginScreen
 import com.telecall.app.ui.MicrophoneRequiredScreen
+import com.telecall.app.ui.ProgressiveScreen
 import com.telecall.app.ui.SearchScreen
 import com.telecall.app.ui.TrainingScreen
 import com.telecall.app.ui.UnsupportedDeviceScreen
@@ -55,6 +56,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             TelecallTheme {
                 val state by viewModel.state.collectAsState()
+                val progUi by viewModel.progressive.ui.collectAsState()
 
                 Box(Modifier.fillMaxSize()) {
                     if (!microphoneGranted.value) {
@@ -83,6 +85,9 @@ class MainActivity : ComponentActivity() {
                             onSaveContactNumber = viewModel::saveContactNumber,
                             onSwitchCampaign = viewModel::openCampaignPicker,
                             onOpenTraining = viewModel::openTraining,
+                            onSetCallingMode = viewModel::setCallingMode,
+                            onOpenProgressive = viewModel::openProgressive,
+                            progressivePending = progUi.pending.size,
                             onOpenBankAppsTab = viewModel::loadBankAppsIfNeeded,
                             onStartNewBankApp = viewModel::startNewBankApp,
                             onOpenBankAppDetail = viewModel::openBankAppDetail,
@@ -95,6 +100,29 @@ class MainActivity : ComponentActivity() {
                             onBankAppVkycStatus = viewModel::onBankAppFieldVkycStatus,
                             onSaveBankApp = viewModel::saveBankApp
                         )
+
+                        Screen.PROGRESSIVE -> {
+                            // Leaving pauses dialling after the current call — same for the
+                            // system back gesture as for the in-app arrow.
+                            BackHandler { viewModel.backFromProgressive() }
+                            ProgressiveScreen(
+                                ui = progUi,
+                                onBack = viewModel::backFromProgressive,
+                                onStart = viewModel.progressive::start,
+                                onPause = viewModel.progressive::pause,
+                                onSkip = viewModel.progressive::skip,
+                                onRefreshSims = viewModel.progressive::refreshSims,
+                                onChooseSim = viewModel.progressive::chooseSim,
+                                onDismissSimPicker = viewModel.progressive::dismissSimPicker,
+                                onOpenSave = viewModel.progressive::openSave,
+                                onCloseSave = viewModel.progressive::closeSave,
+                                onStatus = viewModel.progressive::setStatus,
+                                onQuality = viewModel.progressive::setQuality,
+                                onRemarks = viewModel.progressive::setRemarks,
+                                onCallbackAt = viewModel.progressive::setCallbackAt,
+                                onSave = viewModel.progressive::save
+                            )
+                        }
 
                         Screen.CAMPAIGN -> CampaignScreen(
                             state = state,
@@ -183,8 +211,16 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onPause() {
+        super.onPause()
+        // Android won't let an app place a call from the background, so progressive
+        // dialling waits whenever this screen isn't in front.
+        viewModel.progressive.onForeground(false)
+    }
+
     override fun onResume() {
         super.onResume()
+        viewModel.progressive.onForeground(true)
         refreshMicrophoneGate()
         // The agent may have granted the Phone permission from Settings while
         // the app was backgrounded; re-read the SIM list on the way back in.

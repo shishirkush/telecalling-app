@@ -323,6 +323,34 @@ class LeadRepository(private val client: SupabaseClient) {
         )
     }
 
+    // ---- progressive calling (backend/60_progressive_mode.sql) ----
+
+    /** Switches between "normal" and "progressive"; refused while calls are waiting to be saved. */
+    suspend fun setCallingMode(mode: String): Outcome<Unit> {
+        val body = buildJsonObject { put("p_mode", mode) }.toString()
+        return when (val r = client.rpc("set_calling_mode", body)) {
+            is Outcome.Err -> r
+            is Outcome.Ok -> Outcome.Ok(Unit)
+        }
+    }
+
+    /** Leads this agent has called but not saved an outcome for, oldest call first. */
+    suspend fun myUnsavedCalls(): Outcome<List<UnsavedCall>> =
+        when (val r = client.rpc("my_unsaved_calls")) {
+            is Outcome.Err -> r
+            is Outcome.Ok -> runCatching { json.decodeFromString<List<UnsavedCall>>(r.value) }
+                .fold({ Outcome.Ok(it) }, { Outcome.Err("Could not read your pending calls: ${it.message}") })
+        }
+
+    /**
+     * Keeps this agent's claimed leads from being treated as abandoned (the
+     * 30-minute stale-lock release) while they work through calls waiting to be
+     * saved. Best-effort: a missed refresh just means the next one catches up.
+     */
+    suspend fun refreshMyLocks() {
+        client.rpc("refresh_my_locks")
+    }
+
     // ---- training material (backend/49_training_material.sql) ----
 
     suspend fun trainingItems(): Outcome<List<TrainingItem>> =

@@ -125,10 +125,27 @@ data class Profile(
     // Which campaign this agent is currently working (backend/32_campaigns.sql)
     // — null until they pick one. Only ever changes through switch_campaign();
     // there is no client grant to write this column directly.
-    @SerialName("current_campaign_id") val currentCampaignId: Long? = null
+    @SerialName("current_campaign_id") val currentCampaignId: Long? = null,
+    // "normal" or "progressive" (backend/60_progressive_mode.sql). Only ever
+    // changes through set_calling_mode().
+    @SerialName("calling_mode") val callingMode: String = "normal"
 ) {
     val isSupervisor: Boolean get() = role == "supervisor"
+    val isProgressive: Boolean get() = callingMode == "progressive"
 }
+
+/**
+ * One row of my_unsaved_calls() (backend/60_progressive_mode.sql): a lead this
+ * agent has called but not yet saved an outcome for, with the phone's talk time
+ * if it was reported.
+ */
+@Serializable
+data class UnsavedCall(
+    @SerialName("lead_id") val leadId: Long,
+    @SerialName("last_attempt_at") val lastAttemptAt: String? = null,
+    @SerialName("talk_secs") val talkSecs: Int? = null,
+    @SerialName("dial_secs") val dialSecs: Int? = null
+)
 
 /** Mirrors backend/36_bank_applications.sql's `bank_app_vkyc_status` enum. */
 enum class VkycStatus(val wire: String, val label: String) {
