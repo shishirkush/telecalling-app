@@ -103,6 +103,35 @@ class SimManager(private val context: Context) {
     /** True when the handset has more than one usable SIM. */
     fun isDualSim(): Boolean = availableSims().size > 1
 
+    // ---- the agent's calling SIM ----
+    // One setting for both calling modes: the SIM the agent picked as their default.
+    // Once set, calls go out on it without asking; it is changed from the queue screen
+    // (or the progressive screen) and kept across launches.
+
+    private val prefs get() = context.getSharedPreferences("sim_prefs", Context.MODE_PRIVATE)
+
+    /** The SIM the agent picked, if it is still in the phone; null if they never picked one. */
+    fun savedDefault(sims: List<SimOption>): SimOption? {
+        val slot = prefs.getInt(KEY_DEFAULT_SLOT, -1)
+        return sims.firstOrNull { it.slotIndex == slot }
+    }
+
+    fun saveDefault(sim: SimOption) {
+        prefs.edit().putInt(KEY_DEFAULT_SLOT, sim.slotIndex).apply()
+    }
+
+    /**
+     * Where a call goes when nobody can be asked (progressive dialling): the agent's pick,
+     * else the phone's own default calling SIM, else SIM 1.
+     */
+    fun defaultOrPhoneSim(sims: List<SimOption>): SimOption? {
+        if (sims.isEmpty()) return null
+        savedDefault(sims)?.let { return it }
+        val voiceId = runCatching { SubscriptionManager.getDefaultVoiceSubscriptionId() }.getOrNull()
+        sims.firstOrNull { it.subscriptionId != null && it.subscriptionId == voiceId }?.let { return it }
+        return sims.first()
+    }
+
     /**
      * Place the call.
      *
@@ -156,5 +185,6 @@ class SimManager(private val context: Context) {
 
     companion object {
         private const val TAG = "SimManager"
+        private const val KEY_DEFAULT_SLOT = "default_slot"
     }
 }

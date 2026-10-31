@@ -93,7 +93,6 @@ class ProgressiveSession(
         val message: String? = null,
         val sims: List<SimOption> = emptyList(),
         val chosenSim: SimOption? = null,
-        val askSim: Boolean = false,
 
         // the save dialog
         val editing: Pending? = null,
@@ -210,18 +209,23 @@ class ProgressiveSession(
     // SIMs
     // ------------------------------------------------------------------
 
+    /**
+     * Picks the SIM calls go out on WITHOUT asking: a chooser dialog would stop the
+     * dialling until the agent tapped it. The agent can switch on the screen at any
+     * time (it applies from the next call), and that choice is remembered.
+     */
     fun refreshSims() {
         val sims = simManager.availableSims()
+        // The agent's saved pick wins (it may have just been changed on the queue screen).
         _ui.update { u ->
-            val chosen = u.chosenSim?.takeIf { c -> sims.any { it.handle == c.handle } }
-                ?: sims.singleOrNull()
-            u.copy(sims = sims, chosenSim = chosen, askSim = sims.size > 1 && chosen == null)
+            u.copy(sims = sims, chosenSim = simManager.defaultOrPhoneSim(sims))
         }
     }
 
-    fun chooseSim(sim: SimOption) = _ui.update { it.copy(chosenSim = sim, askSim = false) }
-
-    fun dismissSimPicker() = _ui.update { it.copy(askSim = false) }
+    fun chooseSim(sim: SimOption) {
+        simManager.saveDefault(sim)
+        _ui.update { it.copy(chosenSim = sim) }
+    }
 
     // ------------------------------------------------------------------
     // Pending list

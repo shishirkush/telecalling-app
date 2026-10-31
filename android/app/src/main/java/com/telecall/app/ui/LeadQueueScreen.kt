@@ -75,6 +75,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.telecall.app.BankAppFormMode
 import com.telecall.app.UiState
+import com.telecall.app.call.SimOption
 import com.telecall.app.data.ApprovalStatus
 import com.telecall.app.data.BankApplication
 import com.telecall.app.data.CallStatus
@@ -100,6 +101,7 @@ fun LeadQueueScreen(
     onSaveContactNumber: () -> Unit,
     onSwitchCampaign: () -> Unit,
     onOpenTraining: () -> Unit,
+    onChooseCallingSim: (SimOption) -> Unit,
     onSetCallingMode: (String) -> Unit,
     onOpenProgressive: () -> Unit,
     progressivePending: Int,
@@ -238,6 +240,38 @@ fun LeadQueueScreen(
                     onClick = { onSetCallingMode("progressive") },
                     label = { Text("Progressive") }
                 )
+            }
+            // On a phone with two SIMs: the one every call goes out on, in both modes, with
+            // no prompt. Until the agent picks one, the first call asks once.
+            if (state.sims.size > 1) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Calling SIM",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    state.sims.forEach { sim ->
+                        FilterChip(
+                            selected = state.callingSimSlot == sim.slotIndex,
+                            onClick = { onChooseCallingSim(sim) },
+                            label = { Text(sim.label) }
+                        )
+                    }
+                    if (state.callingSimSlot == null) {
+                        Text(
+                            text = "not chosen yet",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
             }
             if (progressiveMode) {
                 Card(

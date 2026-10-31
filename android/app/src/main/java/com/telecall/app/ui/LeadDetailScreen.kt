@@ -535,9 +535,16 @@ internal fun SimPickerDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Call using") },
+        title = { Text("Choose your calling SIM") },
         text = {
             Column {
+                Text(
+                    text = "This becomes your default: calls go out on it without asking. " +
+                        "Change it any time from the queue screen.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
                 sims.forEach { sim ->
                     Row(
                         modifier = Modifier

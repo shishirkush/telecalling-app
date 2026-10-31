@@ -67,6 +67,8 @@ data class UiState(
 
     // --- SIM selection ---
     val sims: List<SimOption> = emptyList(),
+    // The slot of the agent's chosen default calling SIM; null until they pick one.
+    val callingSimSlot: Int? = null,
     val showSimPicker: Boolean = false,
     val pendingNumber: String? = null,
     val calledOnSimSlot: Int? = null,
@@ -566,6 +568,7 @@ class AppViewModel(
     /** Leaving pauses dialling after the current call; calls waiting to be saved stay waiting. */
     fun backFromProgressive() {
         progressive.close()
+        refreshSims()   // the SIM may have been changed on the progressive screen
         _state.update { it.copy(screen = Screen.QUEUE) }
         refreshQueue()
     }
@@ -856,13 +859,20 @@ class AppViewModel(
     // -----------------------------------------------------------------
 
     /**
-     * Tapping the mobile number. Single SIM -> dial straight away.
-     * Dual SIM -> show the chooser first.
+     * Tapping the mobile number. Single SIM -> dial straight away. Dual SIM -> dial on the
+     * agent's default SIM without asking; only the very first time, before they have picked
+     * one, is the chooser shown (and what they pick becomes the default).
      */
     fun onMobileTapped(number: String) {
         val sims = simManager.availableSims()
         if (sims.size > 1) {
-            _state.update { it.copy(sims = sims, showSimPicker = true, pendingNumber = number) }
+            val saved = simManager.savedDefault(sims)
+            if (saved != null) {
+                _state.update { it.copy(sims = sims, callingSimSlot = saved.slotIndex) }
+                dial(number, saved)
+            } else {
+                _state.update { it.copy(sims = sims, showSimPicker = true, pendingNumber = number) }
+            }
         } else {
             dial(number, sims.firstOrNull())
         }
@@ -870,8 +880,17 @@ class AppViewModel(
 
     fun onSimChosen(sim: SimOption) {
         val number = _state.value.pendingNumber
-        _state.update { it.copy(showSimPicker = false, pendingNumber = null) }
+        simManager.saveDefault(sim)
+        progressive.chooseSim(sim)
+        _state.update { it.copy(showSimPicker = false, pendingNumber = null, callingSimSlot = sim.slotIndex) }
         if (number != null) dial(number, sim)
+    }
+
+    /** The "Calling SIM" switch on the queue screen: the default for every call in both modes. */
+    fun setCallingSim(sim: SimOption) {
+        simManager.saveDefault(sim)
+        progressive.chooseSim(sim)
+        _state.update { it.copy(callingSimSlot = sim.slotIndex) }
     }
 
     fun dismissSimPicker() {
@@ -979,7 +998,9 @@ class AppViewModel(
 
     /** Call again after permissions were granted, or to retry. */
     fun refreshSims() {
-        _state.update { it.copy(sims = simManager.availableSims()) }
+        val sims = simManager.availableSims()
+        _state.update { it.copy(sims = sims, callingSimSlot = simManager.savedDefault(sims)?.slotIndex) }
+        progressive.refreshSims()
     }
 
     // -----------------------------------------------------------------

@@ -69,7 +69,6 @@ fun ProgressiveScreen(
     onSkip: () -> Unit,
     onRefreshSims: () -> Unit,
     onChooseSim: (SimOption) -> Unit,
-    onDismissSimPicker: () -> Unit,
     onOpenSave: (ProgressiveSession.Pending) -> Unit,
     onCloseSave: () -> Unit,
     onStatus: (CallStatus) -> Unit,
@@ -161,6 +160,31 @@ fun ProgressiveScreen(
             )
             Spacer(Modifier.height(16.dp))
 
+            // ---------- Which SIM calls go out on ----------
+            // Chosen automatically (last choice, else the phone's default calling SIM)
+            // so dialling never waits on a popup; change it here any time — it applies
+            // from the next call.
+            if (ui.sims.size > 1) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Calling SIM",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    ui.sims.forEach { sim ->
+                        FilterChip(
+                            selected = ui.chosenSim?.handle == sim.handle,
+                            onClick = { onChooseSim(sim) },
+                            label = { Text(sim.label) }
+                        )
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+            }
+
             // ---------- What is happening now ----------
             StatusCard(ui = ui, onStart = { startOrAsk() }, onPause = onPause, onSkip = onSkip, running = running)
 
@@ -190,10 +214,6 @@ fun ProgressiveScreen(
             }
             Spacer(Modifier.height(24.dp))
         }
-    }
-
-    if (ui.askSim && ui.phase != Phase.ON_CALL) {
-        SimPickerDialog(sims = ui.sims, onPick = onChooseSim, onDismiss = onDismissSimPicker)
     }
 
     val editing = ui.editing
@@ -281,7 +301,10 @@ private fun StatusCard(
     }
 }
 
-/** The customer on the line — what the agent needs to see while talking. No mobile number is shown. */
+/**
+ * The customer on the line: the same record, with the same fields and masking, as the
+ * normal-mode detail screen. As there, the mobile number itself is not printed.
+ */
 @Composable
 private fun CurrentLeadCard(lead: Lead) {
     Card(
@@ -292,8 +315,12 @@ private fun CurrentLeadCard(lead: Lead) {
         Column(Modifier.padding(16.dp)) {
             Field("Name", lead.name)
             Field("Company", lead.company ?: "—")
+            Field("Email", lead.email ?: "—")
+            Field("PAN", maskPan(lead.pan))
+            Field("DOB", maskDob(lead.dob))
             Field("Annual Income Range", lead.annualIncomeRange ?: "—")
             Field("ICI Cr Lmt", maskAmount(lead.iciCrLmt), emphasise = true)
+            Field("Address", maskAddress(lead.address))
             if (lead.attempts > 0) {
                 HorizontalDivider(Modifier.padding(vertical = 12.dp))
                 Text(
